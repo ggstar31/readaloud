@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #efe6d4;
-  --foreground: #0f172a;
-  --muted: #64748b;
+  --background: #070817;
+  --foreground: #f8fafc;
+  --muted: #a6abc3;
 }
 
 @theme inline {
@@ -34,5 +34,76 @@ textarea {
 }
 
 ::selection {
-  background: rgba(20, 52, 69, 0.18);
+  background: rgba(167, 139, 250, 0.28);
+}
+
+@keyframes orb-float {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-10px) scale(1.035);
+  }
+}
+
+@keyframes ring-pulse {
+  0% {
+    transform: scale(0.78);
+    opacity: 0.62;
+  }
+  70% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+
+@keyframes aurora-shift {
+  0% {
+    transform: translate3d(-3%, -2%, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(4%, 3%, 0) rotate(8deg);
+  }
+  100% {
+    transform: translate3d(-3%, -2%, 0) rotate(0deg);
+  }
+}
+
+.aurora-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.aurora-bg::before {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(34, 211, 238, 0.28), transparent 24%),
+    radial-gradient(circle at 78% 16%, rgba(168, 85, 247, 0.34), transparent 25%),
+    radial-gradient(circle at 50% 92%, rgba(59, 130, 246, 0.22), transparent 26%);
+  filter: blur(38px);
+  opacity: 0.9;
+  pointer-events: none;
+  animation: aurora-shift 18s ease-in-out infinite;
+}
+
+.app-glass {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.045));
+  box-shadow: 0 28px 120px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(22px);
+}
+
+.orb-core {
+  animation: orb-float 5.5s ease-in-out infinite;
+}
+
+.orb-ring {
+  animation: ring-pulse 2.8s ease-out infinite;
 }

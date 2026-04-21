@@ -15,17 +15,6 @@ import type { Article, ChatMessage, PlayerState, ProcessedChunk, SegmentType } f
 type Stage = "narration" | "summary" | "quiz" | null;
 type PlaybackSegmentType = Exclude<SegmentType, "chat">;
 
-const friendlyStatus: Record<PlayerState, string> = {
-  IDLE: "Drop in a public article and we’ll turn it into a cinematic audio briefing.",
-  PREPARING: "Preparing a guided listening session from the article.",
-  READY: "Your session is ready. Hit play whenever you want.",
-  NARRATING: "The story is playing now.",
-  SUMMARIZING: "A fast recap is coming through.",
-  QUIZZING: "A quick reflection prompt is live.",
-  CHATTING: "The companion is answering your question aloud.",
-  ERROR: "We hit a hiccup preparing this article. Try again or switch to another public link.",
-};
-
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
@@ -130,6 +119,24 @@ export default function Home() {
     const questionCount = chatMessages.filter((message) => message.role === "user").length;
     return Math.min(99, completedChunks * 11 + questionCount * 7 + (article ? 8 : 0));
   }, [article, chatMessages, completedChunks]);
+
+  const currentDisplayText = useMemo(() => {
+    const chunk = processedChunks[currentChunk];
+
+    if (!chunk) {
+      return "";
+    }
+
+    if (currentStage === "summary") {
+      return chunk.summary;
+    }
+
+    if (currentStage === "quiz") {
+      return chunk.question;
+    }
+
+    return chunk.narration;
+  }, [currentChunk, currentStage, processedChunks]);
 
   const canStart =
     processedChunks.length > 0 &&
@@ -388,6 +395,36 @@ export default function Home() {
     }
   }
 
+  async function handlePreviousChunk() {
+    if (!processedChunks.length) {
+      return;
+    }
+
+    stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
+    }
+
+    const previousIndex = Math.max(0, currentChunk - 1);
+    setCompletedChunks(previousIndex);
+    await playChunkSegment(previousIndex, "narration");
+  }
+
+  async function handleNextChunk() {
+    if (!processedChunks.length) {
+      return;
+    }
+
+    stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
+    }
+
+    const nextIndex = Math.min(processedChunks.length - 1, currentChunk + 1);
+    setCompletedChunks(nextIndex);
+    await playChunkSegment(nextIndex, "narration");
+  }
+
   async function handleSendChat(message: string) {
     if (!article) {
       return;
@@ -465,96 +502,87 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#1c2d4b_0%,rgba(28,45,75,0)_26%),radial-gradient(circle_at_85%_20%,rgba(219,39,119,0.22),transparent_22%),linear-gradient(180deg,#070b16_0%,#0a1021_52%,#05070e_100%)] text-slate-100">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-          <div className="rounded-[2.25rem] border border-white/10 bg-[linear-gradient(180deg,rgba(12,18,32,0.92),rgba(7,10,20,0.98))] p-6 shadow-[0_30px_120px_rgba(0,0,0,0.45)]">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-3xl">
-                <span className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">
-                  ReadAloud
-                </span>
-                <h1 className="mt-5 max-w-4xl text-4xl font-semibold tracking-tight text-white sm:text-6xl">
-                  Turn any public article into a dark-mode audio quest.
-                </h1>
-                <p className="mt-5 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
-                  A link becomes a narrated experience with elegant recaps,
-                  reflection prompts, live Q&amp;A, and a progress system that feels
-                  more like a game than a reader.
-                </p>
-              </div>
+    <main className="aurora-bg min-h-screen bg-[linear-gradient(180deg,#140c2d_0%,#0d1328_46%,#070817_100%)] text-slate-100">
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+        <header className="flex items-center justify-between rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 backdrop-blur-2xl">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-400 to-cyan-300 text-lg font-black text-slate-950">
+              R
+            </div>
+            <div>
+              <p className="text-sm font-black tracking-tight text-white">ReadAloud</p>
+              <p className="text-xs font-semibold text-slate-400">Audio learning OS</p>
+            </div>
+          </div>
+          <div className="rounded-full bg-white/8 px-4 py-2 text-sm font-black text-white">
+            {insightScore} IQ
+          </div>
+        </header>
 
-              <div className="rounded-[1.5rem] border border-fuchsia-300/15 bg-fuchsia-300/8 px-4 py-3 text-sm text-fuchsia-50">
-                <div className="text-xs uppercase tracking-[0.2em] text-fuchsia-100/70">
-                  Live status
-                </div>
-                <div className="mt-2 max-w-xs leading-6">
-                  {friendlyStatus[playerState]}
-                </div>
-              </div>
+        <section className="grid items-start gap-7 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="space-y-6 xl:sticky xl:top-6">
+            <div className="pt-5 sm:pt-10">
+              <p className="text-[11px] font-black uppercase tracking-[0.4em] text-violet-300">
+                Now an experience
+              </p>
+              <h1 className="mt-4 max-w-2xl text-5xl font-black leading-[0.95] tracking-[-0.07em] text-white sm:text-7xl">
+                Read articles like they are alive.
+              </h1>
+              <p className="mt-6 max-w-xl text-lg font-semibold leading-8 text-slate-300">
+                Drop a link, press play, and get sharp narration, recaps, and
+                mind-sharpening checkpoints hands free.
+              </p>
             </div>
 
-            <div className="mt-8">
-              <ArticleInput
-                url={url}
-                onUrlChange={setUrl}
-                onSubmit={handlePrepareArticle}
-                isLoading={isPreparing}
-              />
-            </div>
+            <ArticleInput
+              url={url}
+              onUrlChange={setUrl}
+              onSubmit={handlePrepareArticle}
+              isLoading={isPreparing}
+            />
 
-            <div className="mt-8 grid gap-4 md:grid-cols-3">
-              <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Stage one
-                </p>
-                <p className="mt-3 text-xl font-semibold text-white">Narration</p>
-                <p className="mt-2 text-sm leading-7 text-slate-300">
-                  The article is rewritten for the ear, not the eye.
-                </p>
-              </div>
-              <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Stage two
-                </p>
-                <p className="mt-3 text-xl font-semibold text-white">Summary</p>
-                <p className="mt-2 text-sm leading-7 text-slate-300">
-                  Every section lands with a fast, memorable recap.
-                </p>
-              </div>
-              <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Stage three
-                </p>
-                <p className="mt-3 text-xl font-semibold text-white">Quiz</p>
-                <p className="mt-2 text-sm leading-7 text-slate-300">
-                  A quick reflection prompt keeps the listener mentally in the game.
-                </p>
-              </div>
+            <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+              {[
+                ["Hands free", "Lean back and listen like a private briefing."],
+                ["Recaps", "Every section ends with a crisp memory lock."],
+                ["Earn IQ", "Progress and questions turn reading into a game."],
+              ].map(([title, body]) => (
+                <div key={title} className="app-glass rounded-[1.75rem] p-5">
+                  <p className="text-lg font-black text-white">{title}</p>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">
+                    {body}
+                  </p>
+                </div>
+              ))}
             </div>
 
             {error ? (
-              <div className="mt-6 rounded-[1.5rem] border border-rose-400/25 bg-rose-400/10 px-5 py-4 text-sm leading-7 text-rose-100">
+              <div className="rounded-[1.5rem] border border-rose-400/25 bg-rose-400/10 px-5 py-4 text-sm font-semibold leading-7 text-rose-100">
                 {error}
               </div>
             ) : null}
           </div>
 
-          <PlayerBar
-            playerState={playerState}
-            canStart={canStart}
-            canPause={canPause}
-            onStart={handleStartPlayback}
-            onPause={handlePause}
-            onReset={handleReset}
-            progressPercent={progressPercent}
-            insightScore={insightScore}
-            completedChunks={completedChunks}
-            totalChunks={processedChunks.length}
-            currentStage={currentStage}
-            articleTitle={article?.title ?? ""}
-            finalSummary={finalSummary}
-          />
+          <div className="mx-auto w-full max-w-[38rem] xl:max-w-none">
+            <PlayerBar
+              playerState={playerState}
+              canStart={canStart}
+              canPause={canPause}
+              onStart={handleStartPlayback}
+              onPause={handlePause}
+              onReset={handleReset}
+              onPrevious={handlePreviousChunk}
+              onNext={handleNextChunk}
+              progressPercent={progressPercent}
+              insightScore={insightScore}
+              completedChunks={completedChunks}
+              totalChunks={processedChunks.length}
+              currentStage={currentStage}
+              articleTitle={article?.title ?? ""}
+              finalSummary={finalSummary}
+              displayText={currentDisplayText}
+            />
+          </div>
         </section>
 
         <ChatDrawer

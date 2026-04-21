@@ -49,6 +49,7 @@ export function ChatDrawer({
   const [draft, setDraft] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   const recognitionConstructor = useMemo(() => {
@@ -74,6 +75,7 @@ export function ChatDrawer({
 
     onSend(draft.trim());
     setDraft("");
+    setVoiceMessage("");
   }
 
   function startVoiceCapture() {
@@ -96,14 +98,14 @@ export function ChatDrawer({
       }
 
       setDraft(nextTranscript.trim());
-      setVoiceMessage("Voice note captured. You can edit it before sending.");
+      setVoiceMessage("Voice note captured. Edit it or send.");
     };
 
     recognition.onerror = (event) => {
       setVoiceMessage(
         event.error === "not-allowed"
           ? "Microphone access was blocked by the browser."
-          : "Voice note capture hit a browser issue."
+          : "Voice capture hit a browser issue."
       );
       setIsListening(false);
     };
@@ -123,82 +125,110 @@ export function ChatDrawer({
     setIsListening(false);
   }
 
+  const latestAssistant =
+    [...messages].reverse().find((message) => message.role === "assistant")?.content ??
+    `I'm your reading companion for ${
+      articleTitle || "this article"
+    }. Ask me anything, or tap the mic to speak.`;
+
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(16,28,45,0.96),rgba(7,9,19,0.98))] p-6 text-slate-50 shadow-[0_24px_120px_rgba(0,0,0,0.4)]">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-fuchsia-200/70">
-            Ask anytime
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold">Conversation mode</h2>
-          <p className="mt-2 max-w-xl text-sm leading-7 text-slate-300">
-            Pause the session, ask a question, or record a short voice note for
-            the article companion.
-          </p>
-        </div>
-        <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-100">
-          {isEnabled ? "Ready now" : "Available once an article loads"}
-        </span>
-      </div>
+    <>
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        disabled={!isEnabled}
+        className="fixed bottom-8 right-6 z-30 inline-flex items-center gap-3 rounded-full bg-[linear-gradient(135deg,#22d3ee,#8b5cf6)] px-6 py-4 text-lg font-black text-white shadow-[0_22px_65px_rgba(34,211,238,0.38)] transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-45 lg:bottom-10 lg:right-10"
+      >
+        <span className="text-2xl">☁</span>
+        Ask
+      </button>
 
-      <div className="mt-5 max-h-[24rem] space-y-3 overflow-y-auto rounded-[1.4rem] border border-white/10 bg-white/5 p-4">
-        {messages.length ? (
-          messages.map((message, index) => (
-            <div
-              key={`${message.role}-${index}`}
-              className={`rounded-[1.1rem] px-4 py-3 text-sm leading-6 ${
-                message.role === "user"
-                  ? "ml-auto max-w-[88%] bg-fuchsia-100 text-slate-950"
-                  : "max-w-[92%] bg-white/10 text-slate-100"
-              }`}
-            >
-              {message.content}
-            </div>
-          ))
-        ) : (
-          <p className="text-sm leading-7 text-slate-300">
-            Once {articleTitle || "your article"} is loaded, the listener can ask
-            questions at any point instead of waiting for the session to finish.
-          </p>
-        )}
-      </div>
-
-      <form onSubmit={handleSubmit} className="mt-5 space-y-3">
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          disabled={!isEnabled || isSending}
-          rows={3}
-          placeholder="Ask for clarification, a simpler explanation, or extra context."
-          className="w-full rounded-[1.4rem] border border-white/10 bg-white/8 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-fuchsia-300 disabled:cursor-not-allowed disabled:opacity-65"
+      <section
+        className={`fixed inset-x-0 bottom-0 z-40 mx-auto max-w-3xl rounded-t-[2.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(22,18,38,0.98),rgba(8,10,20,0.99))] p-6 text-white shadow-[0_-26px_100px_rgba(0,0,0,0.55)] transition-transform duration-300 ${
+          isOpen ? "translate-y-0" : "translate-y-[calc(100%-5.25rem)]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setIsOpen((value) => !value)}
+          className="mx-auto mb-5 block h-1.5 w-24 rounded-full bg-white/25"
+          aria-label={isOpen ? "Collapse conversation" : "Open conversation"}
         />
-        <div className="flex flex-wrap items-center gap-3">
+
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.34em] text-violet-300">
+              Conversation
+            </p>
+            <h2 className="mt-2 text-2xl font-black tracking-tight">
+              Ask about this article
+            </h2>
+          </div>
           <button
-            type="submit"
-            disabled={!isEnabled || isSending || !draft.trim()}
-            className="rounded-full bg-[#f7b955] px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-[#ffd07c] disabled:cursor-not-allowed disabled:opacity-65"
+            type="button"
+            onClick={() => setIsOpen(false)}
+            className="grid h-12 w-12 place-items-center rounded-full bg-white/12 text-2xl text-white/80 transition hover:bg-white/18"
+            aria-label="Close conversation"
           >
-            {isSending ? "Thinking..." : "Send question"}
+            ×
           </button>
-          {recognitionConstructor ? (
-            <button
-              type="button"
-              onClick={isListening ? stopVoiceCapture : startVoiceCapture}
-              disabled={!isEnabled || isSending}
-              className="rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isListening ? "Stop voice note" : "Voice note"}
-            </button>
-          ) : (
-            <span className="text-sm text-slate-400">
-              Voice notes depend on browser speech recognition support.
-            </span>
-          )}
         </div>
-        {voiceMessage ? (
-          <p className="text-sm text-fuchsia-100/80">{voiceMessage}</p>
-        ) : null}
-      </form>
-    </section>
+
+        <div className="mt-6 max-h-72 space-y-3 overflow-y-auto pr-1">
+          <div className="max-w-[86%] rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-base font-semibold leading-7 text-slate-100">
+            {latestAssistant}
+          </div>
+          {messages
+            .filter((message) => message.role === "user")
+            .slice(-3)
+            .map((message, index) => (
+              <div
+                key={`${message.content}-${index}`}
+                className="ml-auto max-w-[82%] rounded-[1.35rem] bg-violet-100 px-5 py-4 text-base font-semibold leading-7 text-slate-950"
+              >
+                {message.content}
+              </div>
+            ))}
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-6">
+          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/10 p-2">
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              disabled={!isEnabled || isSending}
+              placeholder="Can you explain that simply?"
+              className="min-h-12 flex-1 bg-transparent px-4 text-base font-semibold text-white outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+            />
+            {recognitionConstructor ? (
+              <button
+                type="button"
+                onClick={isListening ? stopVoiceCapture : startVoiceCapture}
+                disabled={!isEnabled || isSending}
+                className={`grid h-12 w-12 place-items-center rounded-full text-lg font-black transition ${
+                  isListening
+                    ? "bg-rose-400 text-slate-950"
+                    : "bg-white/10 text-white hover:bg-white/16"
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+                aria-label="Voice note"
+              >
+                ●
+              </button>
+            ) : null}
+            <button
+              type="submit"
+              disabled={!isEnabled || isSending || !draft.trim()}
+              className="grid h-12 w-12 place-items-center rounded-full bg-[linear-gradient(135deg,#f0abfc,#facc15)] text-xl font-black text-slate-950 transition hover:scale-[1.04] disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Send question"
+            >
+              ↑
+            </button>
+          </div>
+          {voiceMessage ? (
+            <p className="mt-3 text-sm font-semibold text-violet-200">{voiceMessage}</p>
+          ) : null}
+        </form>
+      </section>
+    </>
   );
 }
