@@ -5,6 +5,10 @@ import { ArticleInput } from "@/components/ArticleInput";
 import { ChatDrawer } from "@/components/ChatDrawer";
 import { PlayerBar } from "@/components/PlayerBar";
 import { mapWithConcurrency } from "@/lib/async";
+import {
+  createFallbackFinalSummary,
+  createFallbackProcessedChunk,
+} from "@/lib/fallback-processing";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import type { Article, ChatMessage, PlayerState, ProcessedChunk, SegmentType } from "@/types";
 
@@ -320,18 +324,31 @@ export default function Home() {
         const processed = await mapWithConcurrency(
           chunkResponse.chunks,
           2,
-          (chunk) => postJson<ProcessedChunk>("/api/process-chunk", { chunk })
+          async (chunk) => {
+            try {
+              return await postJson<ProcessedChunk>("/api/process-chunk", { chunk });
+            } catch (processError) {
+              console.warn("Chunk API failed, using client fallback.", processError);
+              return createFallbackProcessedChunk(chunk);
+            }
+          }
         );
         setProcessedChunks(processed);
 
-        const summaryResponse = await postJson<{ summary: string }>(
-          "/api/final-summary",
-          {
-            title: scraped.title,
-            summaries: processed.map((item) => item.summary),
-          }
-        );
-        setFinalSummary(summaryResponse.summary);
+        const summaries = processed.map((item) => item.summary);
+        try {
+          const summaryResponse = await postJson<{ summary: string }>(
+            "/api/final-summary",
+            {
+              title: scraped.title,
+              summaries,
+            }
+          );
+          setFinalSummary(summaryResponse.summary);
+        } catch (summaryError) {
+          console.warn("Final summary API failed, using client fallback.", summaryError);
+          setFinalSummary(createFallbackFinalSummary(scraped.title, summaries));
+        }
         setChatMessages([
           {
             role: "assistant",

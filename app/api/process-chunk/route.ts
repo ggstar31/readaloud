@@ -22,8 +22,9 @@ export async function POST(request: Request) {
           maxTokens: 700,
           temperature: 0.35,
           jsonMode: true,
+          timeoutMs: 6500,
         })
-      );
+      , 0);
     } catch (error) {
       console.error("LLM chunk processing failed, using fallback.", error);
       processed = createFallbackProcessedChunk(chunk);

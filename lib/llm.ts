@@ -7,6 +7,7 @@ export type LLMRequest = {
   maxTokens?: number;
   temperature?: number;
   jsonMode?: boolean;
+  timeoutMs?: number;
 };
 
 function getProviderCandidates(preferred?: LLMProvider) {
@@ -55,10 +56,14 @@ export async function callLLM({
   maxTokens = 1200,
   temperature = 0.3,
   jsonMode = false,
+  timeoutMs = 9000,
 }: LLMRequest): Promise<string> {
   const activeProvider = getActiveProvider(provider);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (activeProvider === "claude") {
+  try {
+    if (activeProvider === "claude") {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error("ANTHROPIC_API_KEY is missing.");
     }
@@ -70,6 +75,7 @@ export async function callLLM({
         "x-api-key": process.env.ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514",
         max_tokens: maxTokens,
@@ -107,6 +113,7 @@ export async function callLLM({
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: process.env.OPENAI_LLM_MODEL ?? "gpt-4o-mini",
         max_tokens: maxTokens,
@@ -153,6 +160,7 @@ export async function callLLM({
       headers: {
         "Content-Type": "application/json",
       },
+      signal: controller.signal,
       body: JSON.stringify({
         system_instruction: {
           parts: [{ text: system }],
@@ -193,4 +201,7 @@ export async function callLLM({
   }
 
   return text;
+  } finally {
+    clearTimeout(timeout);
+  }
 }

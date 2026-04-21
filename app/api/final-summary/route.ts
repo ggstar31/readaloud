@@ -34,8 +34,9 @@ export async function POST(request: Request) {
           maxTokens: 300,
           temperature: 0.3,
           jsonMode: true,
+          timeoutMs: 6500,
         })
-      );
+      , 0);
     } catch (error) {
       console.error("LLM final summary failed, using fallback.", error);
       result = {
