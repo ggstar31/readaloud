@@ -1,4 +1,5 @@
 import { withJsonRetry } from "@/lib/json";
+import { createFallbackFinalSummary } from "@/lib/fallback-processing";
 import { callLLM } from "@/lib/llm";
 import { FINAL_SUMMARY_SYSTEM_PROMPT } from "@/lib/prompts";
 
@@ -21,17 +22,27 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await withJsonRetry<FinalSummaryResponse>((extraInstruction) =>
-      callLLM({
-        system: `${FINAL_SUMMARY_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
-        user: `ARTICLE TITLE: ${
-          title ?? "Untitled"
-        }\n\nSECTION SUMMARIES:\n${summaries.join("\n")}`,
-        maxTokens: 300,
-        temperature: 0.3,
-        jsonMode: true,
-      })
-    );
+    let result: FinalSummaryResponse;
+
+    try {
+      result = await withJsonRetry<FinalSummaryResponse>((extraInstruction) =>
+        callLLM({
+          system: `${FINAL_SUMMARY_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
+          user: `ARTICLE TITLE: ${
+            title ?? "Untitled"
+          }\n\nSECTION SUMMARIES:\n${summaries.join("\n")}`,
+          maxTokens: 300,
+          temperature: 0.3,
+          jsonMode: true,
+        })
+      );
+    } catch (error) {
+      console.error("LLM final summary failed, using fallback.", error);
+      result = {
+        summary: createFallbackFinalSummary(title ?? "this article", summaries),
+        bridge: "",
+      };
+    }
 
     return Response.json({
       summary: `${result.summary} ${result.bridge}`.trim(),

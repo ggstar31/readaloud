@@ -1,4 +1,5 @@
 import { withJsonRetry } from "@/lib/json";
+import { createFallbackProcessedChunk } from "@/lib/fallback-processing";
 import { callLLM } from "@/lib/llm";
 import { PROCESS_SYSTEM_PROMPT } from "@/lib/prompts";
 import type { ProcessedChunk } from "@/types";
@@ -11,21 +12,25 @@ export async function POST(request: Request) {
       return Response.json({ error: "Chunk text is required." }, { status: 400 });
     }
 
-    const processed = await withJsonRetry<ProcessedChunk>((extraInstruction) =>
-      callLLM({
-        system: `${PROCESS_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
-        user: chunk,
-        maxTokens: 700,
-        temperature: 0.35,
-        jsonMode: true,
-      })
-    );
+    let processed: ProcessedChunk;
+
+    try {
+      processed = await withJsonRetry<ProcessedChunk>((extraInstruction) =>
+        callLLM({
+          system: `${PROCESS_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
+          user: chunk,
+          maxTokens: 700,
+          temperature: 0.35,
+          jsonMode: true,
+        })
+      );
+    } catch (error) {
+      console.error("LLM chunk processing failed, using fallback.", error);
+      processed = createFallbackProcessedChunk(chunk);
+    }
 
     if (!processed.narration || !processed.summary || !processed.question) {
-      return Response.json(
-        { error: "Model output was missing one of the required fields." },
-        { status: 500 }
-      );
+      processed = createFallbackProcessedChunk(chunk);
     }
 
     return Response.json(processed);

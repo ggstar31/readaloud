@@ -167,9 +167,6 @@ export async function callLLM({
           temperature,
           maxOutputTokens: maxTokens,
           responseMimeType: jsonMode ? "application/json" : undefined,
-          thinkingConfig: {
-            thinkingBudget: 0,
-          },
         },
       }),
     }
