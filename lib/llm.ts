@@ -6,10 +6,39 @@ export type LLMRequest = {
   provider?: LLMProvider;
   maxTokens?: number;
   temperature?: number;
+  jsonMode?: boolean;
 };
 
+function getProviderCandidates(preferred?: LLMProvider) {
+  const configured = preferred ?? (process.env.LLM_PROVIDER as LLMProvider | undefined);
+  const ordered = [configured, "gemini", "openai", "claude"].filter(
+    (value, index, array): value is LLMProvider =>
+      Boolean(value) && array.indexOf(value) === index
+  );
+
+  return ordered.filter((provider) => {
+    if (provider === "gemini") {
+      return Boolean(process.env.GEMINI_API_KEY);
+    }
+
+    if (provider === "openai") {
+      return Boolean(process.env.OPENAI_API_KEY);
+    }
+
+    return Boolean(process.env.ANTHROPIC_API_KEY);
+  });
+}
+
 function getActiveProvider(provider?: LLMProvider): LLMProvider {
-  return provider ?? (process.env.LLM_PROVIDER as LLMProvider) ?? "gemini";
+  const candidates = getProviderCandidates(provider);
+
+  if (!candidates.length) {
+    throw new Error(
+      "No LLM provider key is configured. Add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY."
+    );
+  }
+
+  return candidates[0];
 }
 
 async function readError(response: Response) {
@@ -25,6 +54,7 @@ export async function callLLM({
   provider,
   maxTokens = 1200,
   temperature = 0.3,
+  jsonMode = false,
 }: LLMRequest): Promise<string> {
   const activeProvider = getActiveProvider(provider);
 
@@ -81,6 +111,7 @@ export async function callLLM({
         model: process.env.OPENAI_LLM_MODEL ?? "gpt-4o-mini",
         max_tokens: maxTokens,
         temperature,
+        response_format: jsonMode ? { type: "json_object" } : undefined,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -135,6 +166,7 @@ export async function callLLM({
         generationConfig: {
           temperature,
           maxOutputTokens: maxTokens,
+          responseMimeType: jsonMode ? "application/json" : undefined,
           thinkingConfig: {
             thinkingBudget: 0,
           },
@@ -150,12 +182,14 @@ export async function callLLM({
   const data = (await response.json()) as {
     candidates?: Array<{
       content?: {
-        parts?: Array<{ text?: string }>;
+        parts?: Array<{ text?: string; thought?: boolean }>;
       };
     }>;
   };
 
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const text = data.candidates?.[0]?.content?.parts?.find(
+    (part) => part.text && !part.thought
+  )?.text;
 
   if (!text) {
     throw new Error("Gemini did not return content.");

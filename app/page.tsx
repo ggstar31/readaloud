@@ -1,47 +1,24 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArticleInput } from "@/components/ArticleInput";
 import { ChatDrawer } from "@/components/ChatDrawer";
 import { PlayerBar } from "@/components/PlayerBar";
-import { QuizCard } from "@/components/QuizCard";
-import { TranscriptPanel } from "@/components/TranscriptPanel";
+import { mapWithConcurrency } from "@/lib/async";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
-import type {
-  Article,
-  ChatMessage,
-  PlayerState,
-  ProcessedChunk,
-  QuizFeedback,
-  SegmentType,
-} from "@/types";
+import type { Article, ChatMessage, PlayerState, ProcessedChunk, SegmentType } from "@/types";
 
-const playerLabels: Record<PlayerState, string> = {
-  IDLE: "Paste a public article URL to begin.",
-  SCRAPING: "Pulling the clean article body with Firecrawl.",
-  CHUNKING: "Breaking the article into listenable sections.",
-  PROCESSING: "Writing narration, recap, and quiz moments.",
-  READY: "The article is prepared. Press play to start listening.",
-  NARRATING: "Reading the current section aloud.",
-  SUMMARIZING: "Playing the short recap for this section.",
-  QUIZZING: "Asking the comprehension check.",
-  FEEDBACK: "Giving immediate feedback on your answer.",
-  CHATTING: "Article complete. Conversation mode is unlocked.",
-  ERROR: "Something went wrong. See the error note below.",
-};
+type Stage = "narration" | "summary" | "quiz" | null;
 
-type VisibleTranscript = {
-  narration?: string;
-  summary?: string;
-  question?: string;
-  feedback?: string;
+const friendlyStatus: Record<PlayerState, string> = {
+  IDLE: "Drop in a public article and we’ll turn it into a cinematic audio briefing.",
+  PREPARING: "Preparing a guided listening session from the article.",
+  READY: "Your session is ready. Hit play whenever you want.",
+  NARRATING: "The story is playing now.",
+  SUMMARIZING: "A fast recap is coming through.",
+  QUIZZING: "A quick reflection prompt is live.",
+  CHATTING: "The companion is answering your question aloud.",
+  ERROR: "We hit a hiccup preparing this article. Try again or switch to another public link.",
 };
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
@@ -59,7 +36,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
       const data = (await response.json()) as { error?: string };
       message = data.error ?? message;
     } catch {
-      // Ignore invalid error bodies and fall back to the generic message.
+      // Fall back to generic message when the body is not JSON.
     }
     throw new Error(message);
   }
@@ -82,7 +59,7 @@ async function postAudio(url: string, body: unknown): Promise<Blob> {
       const data = (await response.json()) as { error?: string };
       message = data.error ?? message;
     } catch {
-      // Ignore invalid error bodies and fall back to the generic message.
+      // Fall back to generic message when the body is not JSON.
     }
     throw new Error(message);
   }
@@ -94,220 +71,219 @@ function cacheKey(index: number, type: SegmentType) {
   return `chunk_${index}_${type}`;
 }
 
+function formatError(message: string) {
+  if (/api_key|no llm provider key|key is missing/i.test(message)) {
+    return "The narration AI keys are not set correctly in Vercel yet. Update the environment variables, redeploy, and try again.";
+  }
+
+  if (/429|rate/i.test(message)) {
+    return "The AI provider is temporarily rate-limiting this request. Wait a few seconds and try again.";
+  }
+
+  if (/firecrawl/i.test(message)) {
+    return "The article text could not be cleaned correctly. Try another public article URL.";
+  }
+
+  return "This article could not be turned into an audio session yet. Try another public article or retry after redeploying with updated API settings.";
+}
+
 export default function Home() {
   const [url, setUrl] = useState("");
   const [article, setArticle] = useState<Article | null>(null);
-  const [chunks, setChunks] = useState<string[]>([]);
   const [processedChunks, setProcessedChunks] = useState<ProcessedChunk[]>([]);
-  const [playerState, setPlayerState] = useState<PlayerState>("IDLE");
   const [currentChunk, setCurrentChunk] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
-  const [feedbackByChunk, setFeedbackByChunk] = useState<
-    Record<number, QuizFeedback>
-  >({});
-  const [score, setScore] = useState({ correct: 0, total: 0 });
-  const [finalSummary, setFinalSummary] = useState("");
+  const [completedChunks, setCompletedChunks] = useState(0);
+  const [playerState, setPlayerState] = useState<PlayerState>("IDLE");
+  const [currentStage, setCurrentStage] = useState<Stage>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [finalSummary, setFinalSummary] = useState("");
   const [error, setError] = useState("");
-  const [visibleTranscript, setVisibleTranscript] = useState<VisibleTranscript>(
-    {}
-  );
   const [isPreparing, startPreparingTransition] = useTransition();
   const [isChatting, startChatTransition] = useTransition();
-  const chunkAdvanceTimeoutRef = useRef<number | null>(null);
-  const playChunkSegmentRef = useRef<
-    ((index: number, type: SegmentType) => Promise<void>) | null
-  >(null);
+  const playbackTimeoutRef = useRef<number | null>(null);
+  const playChunkSegmentRef = useRef<((index: number, type: SegmentType) => Promise<void>) | null>(null);
 
-  const { audioCache, ensureAudio, playUrl, stop } = useAudioPlayer();
+  const { ensureAudio, playUrl, stop } = useAudioPlayer();
 
-  const currentProcessedChunk = processedChunks[currentChunk];
-  const currentFeedback = feedbackByChunk[currentChunk];
+  const progressPercent = useMemo(() => {
+    if (!processedChunks.length) {
+      return 0;
+    }
 
-  const canStartPlayback =
+    const stageFraction =
+      currentStage === "narration" ? 0.2 : currentStage === "summary" ? 0.55 : currentStage === "quiz" ? 0.9 : 0;
+
+    return Math.min(
+      100,
+      ((completedChunks + stageFraction) / processedChunks.length) * 100
+    );
+  }, [completedChunks, currentStage, processedChunks.length]);
+
+  const insightScore = useMemo(() => {
+    const questionCount = chatMessages.filter((message) => message.role === "user").length;
+    return Math.min(99, completedChunks * 11 + questionCount * 7 + (article ? 8 : 0));
+  }, [article, chatMessages, completedChunks]);
+
+  const canStart =
     processedChunks.length > 0 &&
     (playerState === "READY" ||
       playerState === "NARRATING" ||
       playerState === "SUMMARIZING" ||
       playerState === "QUIZZING" ||
-      playerState === "FEEDBACK");
+      playerState === "CHATTING");
 
-  const progressLabel = useMemo(() => {
-    if (!processedChunks.length) {
-      return "No article loaded yet";
-    }
-
-    return `Section ${currentChunk + 1} of ${processedChunks.length}`;
-  }, [currentChunk, processedChunks.length]);
+  const canPause =
+    playerState === "NARRATING" ||
+    playerState === "SUMMARIZING" ||
+    playerState === "QUIZZING" ||
+    playerState === "CHATTING";
 
   useEffect(() => {
     return () => {
-      if (chunkAdvanceTimeoutRef.current !== null) {
-        window.clearTimeout(chunkAdvanceTimeoutRef.current);
+      if (playbackTimeoutRef.current !== null) {
+        window.clearTimeout(playbackTimeoutRef.current);
       }
     };
   }, []);
 
-  const fetchSegmentAudio = useCallback(async (
-    index: number,
-    type: SegmentType,
-    text: string,
-    instructions: string
-  ) => {
-    const key = cacheKey(index, type);
+  const fetchSegmentAudio = useCallback(
+    async (index: number, type: SegmentType, text: string, instructions: string) => {
+      const key = cacheKey(index, type);
 
-    return ensureAudio(key, async () => {
-      const blob = await postAudio("/api/tts", {
-        text,
-        instructions,
+      return ensureAudio(key, async () => {
+        const blob = await postAudio("/api/tts", {
+          text,
+          instructions,
+        });
+        return blob;
       });
-      return blob;
-    });
-  }, [ensureAudio]);
+    },
+    [ensureAudio]
+  );
 
-  const prefetchChunkAudio = useCallback(async (index: number) => {
-    const chunk = processedChunks[index];
+  const prefetchChunkAudio = useCallback(
+    async (index: number) => {
+      const chunk = processedChunks[index];
 
-    if (!chunk) {
-      return;
-    }
-
-    await Promise.all([
-      fetchSegmentAudio(
-        index,
-        "narration",
-        chunk.narration,
-        "Speak naturally, warmly, and with steady pacing for focused listening."
-      ),
-      fetchSegmentAudio(
-        index,
-        "summary",
-        chunk.summary,
-        "Speak as a concise recap that reinforces the key point."
-      ),
-      fetchSegmentAudio(
-        index,
-        "question",
-        `${chunk.question} ${chunk.options.join(" ")}`,
-        "Speak clearly like a friendly tutor asking a multiple-choice question."
-      ),
-    ]);
-  }, [fetchSegmentAudio, processedChunks]);
-
-  const playChunkSegment = useCallback(async (index: number, type: SegmentType) => {
-    const chunk = processedChunks[index];
-
-    if (!chunk) {
-      return;
-    }
-
-    const payloadMap: Record<
-      SegmentType,
-      { text: string; instructions: string; state: PlayerState }
-    > = {
-      narration: {
-        text: chunk.narration,
-        instructions:
-          "Narrate like a thoughtful podcast host. Keep it clear, smooth, and energetic enough to hold attention.",
-        state: "NARRATING",
-      },
-      summary: {
-        text: chunk.summary,
-        instructions:
-          "Give a short recap in a grounded, confident tone that feels easy to follow.",
-        state: "SUMMARIZING",
-      },
-      question: {
-        text: `${chunk.question} ${chunk.options.join(" ")}`,
-        instructions:
-          "Ask this like a quiz host. Leave a small pause between each answer option.",
-        state: "QUIZZING",
-      },
-      feedback: {
-        text: feedbackByChunk[index]?.feedback ?? "",
-        instructions:
-          "Respond like a supportive teacher giving short, spoken feedback.",
-        state: "FEEDBACK",
-      },
-    };
-
-    const payload = payloadMap[type];
-
-    if (!payload.text) {
-      return;
-    }
-
-    setPlayerState(payload.state);
-
-    if (type === "narration") {
-      setVisibleTranscript({
-        narration: chunk.narration,
-        summary: chunk.summary,
-        question: chunk.question,
-        feedback: feedbackByChunk[index]?.feedback,
-      });
-    }
-
-    if (type === "feedback") {
-      setVisibleTranscript((previous) => ({
-        ...previous,
-        feedback: payload.text,
-      }));
-    }
-
-    const urlToPlay = await fetchSegmentAudio(
-      index,
-      type,
-      payload.text,
-      payload.instructions
-    );
-
-    await playUrl(urlToPlay, () => {
-      if (type === "narration") {
-        void playChunkSegmentRef.current?.(index, "summary");
+      if (!chunk) {
         return;
       }
 
-      if (type === "summary") {
-        window.setTimeout(() => {
-          void playChunkSegmentRef.current?.(index, "question");
-        }, 450);
+      await Promise.all([
+        fetchSegmentAudio(
+          index,
+          "narration",
+          chunk.narration,
+          "Narrate like a modern podcast host. Clear, rich, and immersive."
+        ),
+        fetchSegmentAudio(
+          index,
+          "summary",
+          chunk.summary,
+          "Speak like a sharp recap after a brilliant section."
+        ),
+        fetchSegmentAudio(
+          index,
+          "question",
+          chunk.question,
+          "Ask this like an intelligent game prompt with a little suspense."
+        ),
+      ]);
+    },
+    [fetchSegmentAudio, processedChunks]
+  );
+
+  const playChunkSegment = useCallback(
+    async (index: number, type: SegmentType) => {
+      const chunk = processedChunks[index];
+
+      if (!chunk) {
         return;
       }
 
-      if (type === "question") {
-        setPlayerState("QUIZZING");
-        return;
-      }
+      const payloadMap: Record<
+        Exclude<SegmentType, "chat">,
+        { text: string; instructions: string; state: PlayerState; stage: Stage }
+      > = {
+        narration: {
+          text: chunk.narration,
+          instructions:
+            "Narrate like a thoughtful podcast host. Keep it elegant, energetic, and easy to follow.",
+          state: "NARRATING",
+          stage: "narration",
+        },
+        summary: {
+          text: chunk.summary,
+          instructions:
+            "Speak this recap with confidence and a calm, polished delivery.",
+          state: "SUMMARIZING",
+          stage: "summary",
+        },
+        question: {
+          text: chunk.question,
+          instructions:
+            "Ask this like a reflective quiz host. End with a short pause for thought.",
+          state: "QUIZZING",
+          stage: "quiz",
+        },
+      };
 
-      if (type === "feedback") {
-        if (index === processedChunks.length - 1) {
-          setPlayerState("CHATTING");
+      const payload = payloadMap[type];
+      setCurrentChunk(index);
+      setCurrentStage(payload.stage);
+      setPlayerState(payload.state);
+
+      const audioUrl = await fetchSegmentAudio(
+        index,
+        type,
+        payload.text,
+        payload.instructions
+      );
+
+      await playUrl(audioUrl, () => {
+        if (type === "narration") {
+          playbackTimeoutRef.current = window.setTimeout(() => {
+            void playChunkSegmentRef.current?.(index, "summary");
+          }, 250);
           return;
         }
 
-        const nextIndex = index + 1;
-        chunkAdvanceTimeoutRef.current = window.setTimeout(() => {
-          setCurrentChunk(nextIndex);
-          void playChunkSegmentRef.current?.(nextIndex, "narration");
-        }, 700);
-      }
-    });
+        if (type === "summary") {
+          playbackTimeoutRef.current = window.setTimeout(() => {
+            void playChunkSegmentRef.current?.(index, "question");
+          }, 250);
+          return;
+        }
 
-    if (type === "narration") {
-      void prefetchChunkAudio(index + 1);
-    }
-  }, [feedbackByChunk, fetchSegmentAudio, playUrl, prefetchChunkAudio, processedChunks]);
+        setCompletedChunks(index + 1);
+        setCurrentStage(null);
+
+        if (index >= processedChunks.length - 1) {
+          setPlayerState("READY");
+          return;
+        }
+
+        playbackTimeoutRef.current = window.setTimeout(() => {
+          void playChunkSegmentRef.current?.(index + 1, "narration");
+        }, 900);
+      });
+
+      if (type === "narration") {
+        void prefetchChunkAudio(index + 1);
+      }
+    },
+    [fetchSegmentAudio, playUrl, prefetchChunkAudio, processedChunks]
+  );
+
+  useEffect(() => {
+    playChunkSegmentRef.current = playChunkSegment;
+  }, [playChunkSegment]);
 
   useEffect(() => {
     if (playerState === "READY" && currentChunk === 0 && processedChunks.length) {
       void prefetchChunkAudio(0);
     }
   }, [currentChunk, playerState, prefetchChunkAudio, processedChunks.length]);
-
-  useEffect(() => {
-    playChunkSegmentRef.current = playChunkSegment;
-  }, [playChunkSegment]);
 
   async function handlePrepareArticle() {
     if (!url.trim()) {
@@ -317,14 +293,14 @@ export default function Home() {
 
     setError("");
     stop();
-    setPlayerState("SCRAPING");
+    setArticle(null);
+    setProcessedChunks([]);
     setCurrentChunk(0);
-    setSelectedAnswer(null);
-    setFeedbackByChunk({});
-    setScore({ correct: 0, total: 0 });
+    setCompletedChunks(0);
+    setCurrentStage(null);
     setFinalSummary("");
-    setVisibleTranscript({});
     setChatMessages([]);
+    setPlayerState("PREPARING");
 
     startPreparingTransition(async () => {
       try {
@@ -332,19 +308,16 @@ export default function Home() {
           url: url.trim(),
         });
         setArticle(scraped);
-        setPlayerState("CHUNKING");
 
         const chunkResponse = await postJson<{ chunks: string[] }>("/api/chunk", {
           markdown: scraped.markdown,
           title: scraped.title,
         });
-        setChunks(chunkResponse.chunks);
 
-        setPlayerState("PROCESSING");
-        const processed = await Promise.all(
-          chunkResponse.chunks.map((chunk) =>
-            postJson<ProcessedChunk>("/api/process-chunk", { chunk })
-          )
+        const processed = await mapWithConcurrency(
+          chunkResponse.chunks,
+          2,
+          (chunk) => postJson<ProcessedChunk>("/api/process-chunk", { chunk })
         );
         setProcessedChunks(processed);
 
@@ -356,13 +329,21 @@ export default function Home() {
           }
         );
         setFinalSummary(summaryResponse.summary);
+        setChatMessages([
+          {
+            role: "assistant",
+            content:
+              "Your article is ready. Start the session, or ask me something about it right away.",
+          },
+        ]);
         setPlayerState("READY");
       } catch (requestError) {
         const message =
           requestError instanceof Error
             ? requestError.message
             : "Something went wrong while preparing the article.";
-        setError(message);
+        console.error(requestError);
+        setError(formatError(message));
         setPlayerState("ERROR");
       }
     });
@@ -373,44 +354,17 @@ export default function Home() {
       return;
     }
 
-    setSelectedAnswer(null);
     await playChunkSegment(currentChunk, "narration");
   }
 
-  async function handleSubmitAnswer(option: string) {
-    const chunk = processedChunks[currentChunk];
-
-    if (!chunk || playerState !== "QUIZZING") {
-      return;
+  function handlePause() {
+    stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
     }
-
-    setSelectedAnswer(option);
-
-    try {
-      const feedback = await postJson<QuizFeedback>("/api/evaluate", {
-        question: chunk.question,
-        options: chunk.options,
-        correctAnswer: chunk.answer,
-        explanation: chunk.explanation,
-        userAnswer: option,
-      });
-
-      setFeedbackByChunk((previous) => ({
-        ...previous,
-        [currentChunk]: feedback,
-      }));
-      setScore((previous) => ({
-        correct: previous.correct + (feedback.correct ? 1 : 0),
-        total: previous.total + 1,
-      }));
-      await playChunkSegment(currentChunk, "feedback");
-    } catch (requestError) {
-      const message =
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not evaluate the answer.";
-      setError(message);
-      setPlayerState("ERROR");
+    setCurrentStage(null);
+    if (processedChunks.length) {
+      setPlayerState("READY");
     }
   }
 
@@ -419,14 +373,19 @@ export default function Home() {
       return;
     }
 
-    const nextMessages = [
-      ...chatMessages,
-      {
-        role: "user" as const,
-        content: message,
-      },
-    ];
+    stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
+    }
+    if (processedChunks.length) {
+      setPlayerState("READY");
+      setCurrentStage(null);
+    }
 
+    const nextMessages: ChatMessage[] = [
+      ...chatMessages,
+      { role: "user", content: message },
+    ];
     setChatMessages(nextMessages);
 
     startChatTransition(async () => {
@@ -444,201 +403,147 @@ export default function Home() {
         };
 
         setChatMessages((previous) => [...previous, assistantMessage]);
+        setPlayerState("CHATTING");
 
-        const key = `chat_${Date.now()}`;
-        const urlToPlay = await ensureAudio(key, async () => {
-          return postAudio("/api/tts", {
+        const audioUrl = await ensureAudio(`chat_${Date.now()}`, async () =>
+          postAudio("/api/tts", {
             text: response.reply,
             instructions:
-              "Speak conversationally, like a smart reading companion answering a follow-up question.",
-          });
-        });
+              "Speak like an articulate reading companion answering a curious listener.",
+          })
+        );
 
-        await playUrl(urlToPlay);
+        await playUrl(audioUrl);
+
+        if (processedChunks.length) {
+          setPlayerState("READY");
+        }
       } catch (requestError) {
         const message =
-          requestError instanceof Error
-            ? requestError.message
-            : "Chat could not be completed.";
-        setError(message);
+          requestError instanceof Error ? requestError.message : "Chat failed.";
+        console.error(requestError);
+        setError(formatError(message));
+        setPlayerState("ERROR");
       }
     });
   }
 
   function handleReset() {
     stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
+    }
     setArticle(null);
-    setChunks([]);
     setProcessedChunks([]);
-    setPlayerState("IDLE");
     setCurrentChunk(0);
-    setSelectedAnswer(null);
-    setFeedbackByChunk({});
-    setScore({ correct: 0, total: 0 });
-    setFinalSummary("");
+    setCompletedChunks(0);
+    setCurrentStage(null);
     setChatMessages([]);
-    setVisibleTranscript({});
+    setFinalSummary("");
     setError("");
+    setPlayerState("IDLE");
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#173a4e,transparent_38%),linear-gradient(180deg,#f4eee1_0%,#efe6d4_55%,#e9deca_100%)] text-slate-900">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#1c2d4b_0%,rgba(28,45,75,0)_26%),radial-gradient(circle_at_85%_20%,rgba(219,39,119,0.22),transparent_22%),linear-gradient(180deg,#070b16_0%,#0a1021_52%,#05070e_100%)] text-slate-100">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[2rem] border border-white/60 bg-white/70 p-6 shadow-[0_24px_100px_rgba(23,58,78,0.12)] backdrop-blur">
-            <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-2xl">
-                <span className="inline-flex rounded-full border border-slate-300/70 bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-600">
-                  ReadAloud v1
+        <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+          <div className="rounded-[2.25rem] border border-white/10 bg-[linear-gradient(180deg,rgba(12,18,32,0.92),rgba(7,10,20,0.98))] p-6 shadow-[0_30px_120px_rgba(0,0,0,0.45)]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl">
+                <span className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">
+                  ReadAloud
                 </span>
-                <h1 className="mt-4 max-w-3xl font-sans text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                  Turn any public article into a narrated lesson, one chunk at a
-                  time.
+                <h1 className="mt-5 max-w-4xl text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+                  Turn any public article into a dark-mode audio quest.
                 </h1>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-700 sm:text-lg">
-                  The app scrapes the article, rewrites it for listening,
-                  delivers spoken recaps, checks comprehension with MCQs, and
-                  finishes with a conversational reading companion.
+                <p className="mt-5 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
+                  A link becomes a narrated experience with elegant recaps,
+                  reflection prompts, live Q&amp;A, and a progress system that feels
+                  more like a game than a reader.
                 </p>
               </div>
 
-              <div className="rounded-[1.5rem] border border-slate-200 bg-[#143445] px-4 py-3 text-sm text-slate-50 shadow-sm">
-                <div className="text-xs uppercase tracking-[0.2em] text-cyan-100/80">
-                  Build logic
+              <div className="rounded-[1.5rem] border border-fuchsia-300/15 bg-fuchsia-300/8 px-4 py-3 text-sm text-fuchsia-50">
+                <div className="text-xs uppercase tracking-[0.2em] text-fuchsia-100/70">
+                  Live status
                 </div>
                 <div className="mt-2 max-w-xs leading-6">
-                  Firecrawl cleans the page, an LLM prepares each chunk, and
-                  OpenAI speech turns the result into audio.
+                  {friendlyStatus[playerState]}
                 </div>
               </div>
             </div>
 
-            <ArticleInput
-              url={url}
-              onUrlChange={setUrl}
-              onSubmit={handlePrepareArticle}
-              isLoading={isPreparing}
-            />
+            <div className="mt-8">
+              <ArticleInput
+                url={url}
+                onUrlChange={setUrl}
+                onSubmit={handlePrepareArticle}
+                isLoading={isPreparing}
+              />
+            </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-[#f9f5ec] p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Step 1
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                  Stage one
                 </p>
-                <p className="mt-2 text-sm leading-6 text-slate-700">
-                  Scrape and clean only the main article body.
-                </p>
-              </div>
-              <div className="rounded-[1.5rem] border border-slate-200 bg-[#f7efe0] p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Step 2
-                </p>
-                <p className="mt-2 text-sm leading-6 text-slate-700">
-                  Convert each section into narration, recap, and quiz prompts.
+                <p className="mt-3 text-xl font-semibold text-white">Narration</p>
+                <p className="mt-2 text-sm leading-7 text-slate-300">
+                  The article is rewritten for the ear, not the eye.
                 </p>
               </div>
-              <div className="rounded-[1.5rem] border border-slate-200 bg-[#eef6f6] p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Step 3
+              <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                  Stage two
                 </p>
-                <p className="mt-2 text-sm leading-6 text-slate-700">
-                  Read it aloud, check understanding, then open article chat.
+                <p className="mt-3 text-xl font-semibold text-white">Summary</p>
+                <p className="mt-2 text-sm leading-7 text-slate-300">
+                  Every section lands with a fast, memorable recap.
+                </p>
+              </div>
+              <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                  Stage three
+                </p>
+                <p className="mt-3 text-xl font-semibold text-white">Quiz</p>
+                <p className="mt-2 text-sm leading-7 text-slate-300">
+                  A quick reflection prompt keeps the listener mentally in the game.
                 </p>
               </div>
             </div>
+
+            {error ? (
+              <div className="mt-6 rounded-[1.5rem] border border-rose-400/25 bg-rose-400/10 px-5 py-4 text-sm leading-7 text-rose-100">
+                {error}
+              </div>
+            ) : null}
           </div>
 
-          <div className="rounded-[2rem] border border-slate-200/70 bg-[#102c39] p-6 text-slate-50 shadow-[0_24px_100px_rgba(23,58,78,0.18)]">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-cyan-100/70">
-                  Session state
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold">Playback control</h2>
-              </div>
-              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100">
-                {progressLabel}
-              </span>
-            </div>
-
-            <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
-              <p className="text-sm leading-7 text-slate-200">
-                {playerLabels[playerState]}
-              </p>
-              {article ? (
-                <div className="mt-5 space-y-3">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.18em] text-cyan-100/70">
-                      Current article
-                    </div>
-                    <div className="mt-1 text-lg font-semibold">{article.title}</div>
-                  </div>
-                  <div className="text-sm leading-6 text-slate-300">
-                    {chunks.length
-                      ? `${chunks.length} chunks prepared for audio-first learning.`
-                      : "Waiting for article preparation to finish."}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <PlayerBar
-              playerState={playerState}
-              canStart={canStartPlayback}
-              onStart={handleStartPlayback}
-              onReset={handleReset}
-              score={score}
-              audioCount={Object.keys(audioCache).length}
-            />
-
-            <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-white">Why this build is cost-aware</p>
-                <span className="rounded-full bg-cyan-100/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-cyan-100">
-                  v1 choice
-                </span>
-              </div>
-              <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-300">
-                <li>We process small chunks instead of one huge article prompt.</li>
-                <li>We prefetch audio progressively instead of generating every MP3 upfront.</li>
-                <li>MCQ grading is deterministic, so we avoid an extra model call there.</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        {error ? (
-          <section className="rounded-[1.5rem] border border-rose-300 bg-rose-50 px-5 py-4 text-sm text-rose-700">
-            {error}
-          </section>
-        ) : null}
-
-        <section className="grid gap-6 xl:grid-cols-[1fr_0.8fr]">
-          <TranscriptPanel
-            article={article}
-            visibleTranscript={visibleTranscript}
-            finalSummary={finalSummary}
+          <PlayerBar
             playerState={playerState}
+            canStart={canStart}
+            canPause={canPause}
+            onStart={handleStartPlayback}
+            onPause={handlePause}
+            onReset={handleReset}
+            progressPercent={progressPercent}
+            insightScore={insightScore}
+            completedChunks={completedChunks}
+            totalChunks={processedChunks.length}
+            currentStage={currentStage}
+            articleTitle={article?.title ?? ""}
+            finalSummary={finalSummary}
           />
-
-          <div className="space-y-6">
-            <QuizCard
-              chunk={currentProcessedChunk}
-              feedback={currentFeedback}
-              playerState={playerState}
-              onAnswer={handleSubmitAnswer}
-              selectedAnswer={selectedAnswer}
-            />
-
-            <ChatDrawer
-              messages={chatMessages}
-              isEnabled={playerState === "CHATTING"}
-              isSending={isChatting}
-              onSend={handleSendChat}
-              articleTitle={article?.title ?? ""}
-            />
-          </div>
         </section>
+
+        <ChatDrawer
+          messages={chatMessages}
+          isEnabled={Boolean(article)}
+          isSending={isChatting}
+          onSend={handleSendChat}
+          articleTitle={article?.title ?? ""}
+        />
       </div>
     </main>
   );

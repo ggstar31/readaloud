@@ -1,6 +1,4 @@
-import { withJsonRetry } from "@/lib/json";
-import { callLLM } from "@/lib/llm";
-import { CHUNK_SYSTEM_PROMPT } from "@/lib/prompts";
+import { chunkArticle } from "@/lib/article-chunker";
 
 export async function POST(request: Request) {
   try {
@@ -16,23 +14,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const articlePayload = `ARTICLE TITLE: ${title ?? "Untitled"}\n\n${markdown
-      .replace(/\n{3,}/g, "\n\n")
-      .slice(0, 30000)}`;
-
-    const chunks = await withJsonRetry<string[]>((extraInstruction) =>
-      callLLM({
-        system: `${CHUNK_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
-        user: articlePayload,
-        maxTokens: 1600,
-        temperature: 0.1,
-      })
+    const chunks = chunkArticle(
+      `ARTICLE TITLE: ${title ?? "Untitled"}\n\n${markdown
+        .replace(/\n{3,}/g, "\n\n")
+        .slice(0, 40000)}`
     );
 
     const sanitizedChunks = chunks
       .map((chunk) => chunk.trim())
       .filter(Boolean)
-      .slice(0, 12);
+      .slice(0, 10);
 
     if (!sanitizedChunks.length) {
       return Response.json(

@@ -29,6 +29,7 @@ export async function POST(request: Request) {
         }\n\nSECTION SUMMARIES:\n${summaries.join("\n")}`,
         maxTokens: 300,
         temperature: 0.3,
+        jsonMode: true,
       })
     );
 

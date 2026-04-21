@@ -1,6 +1,6 @@
 # ReadAloud
 
-ReadAloud turns a public article URL into an audio-first learning session.
+ReadAloud turns a public article URL into a polished audio-first learning session.
 
 The current v1 flow is:
 
@@ -10,10 +10,10 @@ The current v1 flow is:
 4. Each chunk becomes:
    narration
    a 2-sentence recap
-   a multiple-choice quiz
+   a short quiz-style reflection prompt
 5. OpenAI text-to-speech generates spoken audio
-6. The user answers MCQs and gets immediate spoken feedback
-7. The experience ends with a final summary and a follow-up chat mode
+6. The listener can pause and ask questions at any time
+7. The experience ends with a final summary and ongoing conversation mode
 
 ## What You Need To Provide
 
@@ -65,7 +65,7 @@ If your machine does not already have a normal Node.js install, use the current 
 - `app/page.tsx`
   The main reading experience and playback coordinator.
 - `components/*`
-  Input, player, transcript, quiz, and chat UI pieces.
+  Input, player, and chat UI pieces.
 - `hooks/useAudioPlayer.ts`
   Handles browser audio playback and object-URL caching.
 
@@ -76,11 +76,9 @@ If your machine does not already have a normal Node.js install, use the current 
 - `app/api/chunk/route.ts`
   Splits the article into coherent listening chunks.
 - `app/api/process-chunk/route.ts`
-  Produces narration, recap, quiz, and answer data for each chunk.
+  Produces narration, recap, and a spoken quiz prompt for each chunk.
 - `app/api/tts/route.ts`
   Converts text into speech with OpenAI TTS.
-- `app/api/evaluate/route.ts`
-  Grades MCQs deterministically and returns spoken feedback.
 - `app/api/final-summary/route.ts`
   Produces the final article wrap-up.
 - `app/api/chat/route.ts`
@@ -90,6 +88,10 @@ If your machine does not already have a normal Node.js install, use the current 
 
 - `lib/firecrawl.ts`
   Firecrawl integration.
+- `lib/article-chunker.ts`
+  Deterministic local article chunking for reliability.
+- `lib/async.ts`
+  Concurrency helpers for safer chunk processing.
 - `lib/llm.ts`
   Provider abstraction for Claude, OpenAI, and Gemini.
 - `lib/prompts.ts`
@@ -100,20 +102,21 @@ If your machine does not already have a normal Node.js install, use the current 
 ## Important Product Decisions In This Build
 
 - v1 supports public articles only.
-- v1 uses tap-to-answer MCQs, not free-form grading.
+- v1 uses a lightweight spoken quiz prompt instead of a visible quiz form.
 - TTS uses `gpt-4o-mini-tts` because it supports voice instructions.
 - Audio is prefetched progressively instead of generating every chunk upfront.
-- Quiz grading is deterministic to reduce cost and latency.
-- Chat is typed in v1, but the architecture is ready for voice input later.
+- Article chunking is local instead of LLM-driven to reduce prep failures.
+- Chunk processing is concurrency-limited instead of firing all requests at once.
+- Chat supports typed questions plus browser voice-note transcription.
 
 ## Cost Logic
 
 - One default LLM does not automatically reduce cost by itself.
 - What reduces cost is doing fewer and smaller model calls.
 - This build is cost-aware because it:
-  chunks first
+  chunks locally first
   processes chunks separately
-  avoids an LLM call for MCQ grading
+  limits concurrent model calls
   generates speech progressively
 
 ## Voice Roadmap
@@ -126,7 +129,7 @@ You have two realistic options later:
 
 1. Lower-complexity approach:
    browser speech recognition + text LLM + TTS
-   This is cheaper and easier for v2.
+   This is the path used in the current app for voice-note capture.
 
 2. Real voice-agent approach:
    OpenAI Realtime or a provider like ElevenLabs

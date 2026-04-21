@@ -15,14 +15,15 @@ export async function POST(request: Request) {
       callLLM({
         system: `${PROCESS_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
         user: chunk,
-        maxTokens: 900,
+        maxTokens: 700,
         temperature: 0.35,
+        jsonMode: true,
       })
     );
 
-    if (!Array.isArray(processed.options) || processed.options.length !== 4) {
+    if (!processed.narration || !processed.summary || !processed.question) {
       return Response.json(
-        { error: "Model output did not include four answer options." },
+        { error: "Model output was missing one of the required fields." },
         { status: 500 }
       );
     }
