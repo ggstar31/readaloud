@@ -9,6 +9,7 @@ import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import type { Article, ChatMessage, PlayerState, ProcessedChunk, SegmentType } from "@/types";
 
 type Stage = "narration" | "summary" | "quiz" | null;
+type PlaybackSegmentType = Exclude<SegmentType, "chat">;
 
 const friendlyStatus: Record<PlayerState, string> = {
   IDLE: "Drop in a public article and we’ll turn it into a cinematic audio briefing.",
@@ -101,7 +102,9 @@ export default function Home() {
   const [isPreparing, startPreparingTransition] = useTransition();
   const [isChatting, startChatTransition] = useTransition();
   const playbackTimeoutRef = useRef<number | null>(null);
-  const playChunkSegmentRef = useRef<((index: number, type: SegmentType) => Promise<void>) | null>(null);
+  const playChunkSegmentRef = useRef<
+    ((index: number, type: PlaybackSegmentType) => Promise<void>) | null
+  >(null);
 
   const { ensureAudio, playUrl, stop } = useAudioPlayer();
 
@@ -194,7 +197,7 @@ export default function Home() {
   );
 
   const playChunkSegment = useCallback(
-    async (index: number, type: SegmentType) => {
+    async (index: number, type: PlaybackSegmentType) => {
       const chunk = processedChunks[index];
 
       if (!chunk) {
@@ -202,7 +205,7 @@ export default function Home() {
       }
 
       const payloadMap: Record<
-        Exclude<SegmentType, "chat">,
+        PlaybackSegmentType,
         { text: string; instructions: string; state: PlayerState; stage: Stage }
       > = {
         narration: {
