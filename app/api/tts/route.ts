@@ -1,4 +1,4 @@
-const SPEECH_INPUT_LIMIT = 3200;
+const SPEECH_INPUT_LIMIT = 2800;
 
 function splitForSpeech(text: string) {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -49,28 +49,59 @@ export async function POST(request: Request) {
     const parts = splitForSpeech(text);
     const audioBuffers: Uint8Array[] = [];
 
-    for (const part of parts) {
-      const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    const preferredModel = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
+    const preferredVoice = process.env.OPENAI_TTS_VOICE ?? "coral";
+
+    async function createSpeech(part: string) {
+      const preferred = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts",
-          voice: process.env.OPENAI_TTS_VOICE ?? "nova",
+          model: preferredModel,
+          voice: preferredVoice,
           input: part,
           instructions:
-            instructions ?? "Speak naturally and clearly for attentive listening.",
+            instructions ??
+            "Speak in a warm, clear, feminine narration style for attentive listening.",
           response_format: "mp3",
         }),
       });
 
-      if (!response.ok) {
-        const message = await response.text();
-        return Response.json({ error: message }, { status: 500 });
+      if (preferred.ok) {
+        return preferred;
       }
 
+      const preferredError = await preferred.text();
+
+      const fallback = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "tts-1",
+          voice: "nova",
+          input: part,
+          response_format: "mp3",
+        }),
+      });
+
+      if (!fallback.ok) {
+        const fallbackError = await fallback.text();
+        throw new Error(
+          `OpenAI TTS failed. Preferred: ${preferredError}. Fallback: ${fallbackError}`
+        );
+      }
+
+      return fallback;
+    }
+
+    for (const part of parts) {
+      const response = await createSpeech(part);
       const bytes = new Uint8Array(await response.arrayBuffer());
       audioBuffers.push(bytes);
     }

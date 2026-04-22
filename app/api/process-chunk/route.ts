@@ -30,7 +30,14 @@ export async function POST(request: Request) {
       processed = createFallbackProcessedChunk(chunk);
     }
 
-    if (!processed.narration || !processed.summary || !processed.question) {
+    if (
+      !processed.narration ||
+      !processed.summary ||
+      !processed.question ||
+      !processed.options?.length ||
+      !processed.answer ||
+      !processed.explanation
+    ) {
       processed = createFallbackProcessedChunk(chunk);
     }
 

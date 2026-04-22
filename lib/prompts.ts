@@ -9,7 +9,7 @@ Rules:
 Return ONLY a valid JSON array of strings. No markdown. No explanation. No preamble.
 Example: ["Paragraph 1 text. Paragraph 2 text.", "Paragraph 3 text..."]`;
 
-export const PROCESS_SYSTEM_PROMPT = `You are an educational audio narrator. Given a text excerpt from an article, produce 3 things:
+export const PROCESS_SYSTEM_PROMPT = `You are an educational audio narrator. Given a text excerpt from an article, produce 6 things:
 
 1. narration: Rewrite the excerpt for audio listening.
    - Remove footnote markers like [1], (ibid), etc.
@@ -20,15 +20,23 @@ export const PROCESS_SYSTEM_PROMPT = `You are an educational audio narrator. Giv
 2. summary: Exactly 2 sentences summarizing only this excerpt.
    Start with "In this section," or "To summarize,"
 
-3. question: One quiz question about this specific excerpt.
-   It should sound like a sharp reflection prompt for the listener.
-   Do not include answer options or the answer.
+3. question: One multiple-choice quiz question about this specific excerpt.
+   It should test genuine understanding, not trivia.
+
+4. options: Four answer options labeled A, B, C, D.
+
+5. answer: The correct option letter only.
+
+6. explanation: One short sentence explaining why the answer is correct.
 
 Return ONLY valid JSON. No markdown. No preamble. No trailing commas.
 {
   "narration": "...",
   "summary": "...",
-  "question": "..."
+  "question": "...",
+  "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+  "answer": "A",
+  "explanation": "..."
 }`;
 
 export const FINAL_SUMMARY_SYSTEM_PROMPT = `You are a concise audio learning assistant.

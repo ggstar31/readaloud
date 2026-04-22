@@ -6,7 +6,9 @@ export type PlayerState =
   | "READY"
   | "NARRATING"
   | "SUMMARIZING"
+  | "CHECKPOINT"
   | "QUIZZING"
+  | "FEEDBACK"
   | "CHATTING"
   | "ERROR";
 
@@ -23,6 +25,9 @@ export type ProcessedChunk = {
   narration: string;
   summary: string;
   question: string;
+  options?: string[];
+  answer?: "A" | "B" | "C" | "D";
+  explanation?: string;
 };
 
 export type ChatMessage = {
@@ -39,5 +44,6 @@ export type ListeningSession = {
   finalSummary: string;
   chatMessages: ChatMessage[];
   insightScore: number;
+  correctQuizCount?: number;
   updatedAt: string;
 };

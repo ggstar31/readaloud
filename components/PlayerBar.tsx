@@ -9,15 +9,20 @@ type PlayerBarProps = {
   onReset: () => void;
   onPrevious: () => void;
   onNext: () => void;
+  onKeepListening: () => void;
+  onRecapQuiz: () => void;
+  onSelectQuizAnswer: (option: string) => void;
   progressPercent: number;
   insightScore: number;
   completedChunks: number;
   totalChunks: number;
-  currentStage: "narration" | "summary" | "quiz" | null;
+  currentStage: "narration" | "summary" | "checkpoint" | "quiz" | "feedback" | null;
   articleTitle: string;
   finalSummary: string;
   displayText: string;
   listenerName: string;
+  quizOptions: string[];
+  quizFeedback: string;
 };
 
 const stageCopy = {
@@ -36,6 +41,16 @@ const stageCopy = {
     dot: "bg-amber-300",
     helper: "Earn IQ",
   },
+  checkpoint: {
+    label: "Checkpoint",
+    dot: "bg-amber-300",
+    helper: "Choose your next move",
+  },
+  feedback: {
+    label: "IQ Feedback",
+    dot: "bg-emerald-300",
+    helper: "Learning locked",
+  },
 } as const;
 
 function statusFor(playerState: PlayerState) {
@@ -48,8 +63,12 @@ function statusFor(playerState: PlayerState) {
       return "NOW PLAYING";
     case "SUMMARIZING":
       return "RECAPS";
+    case "CHECKPOINT":
+      return "CHECKPOINT";
     case "QUIZZING":
       return "CHECKPOINT";
+    case "FEEDBACK":
+      return "FEEDBACK";
     case "CHATTING":
       return "ASKING";
     case "ERROR":
@@ -68,6 +87,9 @@ export function PlayerBar({
   onReset,
   onPrevious,
   onNext,
+  onKeepListening,
+  onRecapQuiz,
+  onSelectQuizAnswer,
   progressPercent,
   insightScore,
   completedChunks,
@@ -77,12 +99,18 @@ export function PlayerBar({
   finalSummary,
   displayText,
   listenerName,
+  quizOptions,
+  quizFeedback,
 }: PlayerBarProps) {
   const activeStage = currentStage ? stageCopy[currentStage] : stageCopy.narration;
   const isPlaying =
     playerState === "NARRATING" ||
     playerState === "SUMMARIZING" ||
-    playerState === "QUIZZING";
+    playerState === "QUIZZING" ||
+    playerState === "FEEDBACK";
+  const isCheckpoint = playerState === "CHECKPOINT";
+  const isQuiz = playerState === "QUIZZING";
+  const isFeedback = playerState === "FEEDBACK";
 
   return (
     <section className="app-glass relative overflow-hidden rounded-[2rem] p-4 text-white sm:rounded-[2.35rem] sm:p-6">
@@ -140,15 +168,72 @@ export function PlayerBar({
       </div>
 
       <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-[#17122b]/78 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:mt-7 sm:rounded-[1.75rem] sm:p-6">
-        <p className="text-lg font-black leading-7 tracking-tight text-white sm:text-2xl sm:leading-10">
-          {displayText ||
+        <p className="text-[15px] font-bold leading-7 tracking-tight text-white sm:text-[15px] sm:leading-7">
+          {quizFeedback ||
+            displayText ||
             finalSummary ||
             activeStage.helper ||
             "Drop in an article and ReadAloud will turn it into a guided audio experience."}
         </p>
       </div>
 
-      <div className="mt-5 flex items-center justify-center gap-5 sm:mt-6 sm:gap-7">
+      {isCheckpoint ? (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onKeepListening}
+            className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
+          >
+            Keep listening
+            <span className="mt-1 block text-sm font-semibold text-slate-300">
+              Continue to the next paragraph.
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={onRecapQuiz}
+            className="rounded-[1.35rem] bg-[linear-gradient(135deg,#facc15,#22d3ee)] px-5 py-4 text-left text-base font-black text-slate-950 shadow-[0_18px_55px_rgba(34,211,238,0.22)] transition hover:scale-[1.01]"
+          >
+            Recap & Quiz +5IQ
+            <span className="mt-1 block text-sm font-semibold text-slate-800">
+              Recap the last two paragraphs and earn quiz points.
+            </span>
+          </button>
+        </div>
+      ) : null}
+
+      {isQuiz && quizOptions.length ? (
+        <div className="mt-5 grid gap-3">
+          {quizOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onSelectQuizAnswer(option.slice(0, 1))}
+              className="rounded-[1.2rem] border border-white/10 bg-white/[0.07] px-4 py-3 text-left text-[15px] font-bold leading-6 text-slate-100 transition hover:border-cyan-200/40 hover:bg-white/[0.11]"
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {isFeedback ? (
+        <div className="mt-5 flex justify-center">
+          <button
+            type="button"
+            onClick={onKeepListening}
+            className="rounded-full bg-cyan-200 px-6 py-3 text-sm font-black text-slate-950 transition hover:brightness-110"
+          >
+            Continue listening
+          </button>
+        </div>
+      ) : null}
+
+      <div
+        className={`mt-5 items-center justify-center gap-5 sm:mt-6 sm:gap-7 ${
+          isCheckpoint || isQuiz || isFeedback ? "hidden" : "flex"
+        }`}
+      >
         <button
           type="button"
           onClick={onPrevious}

@@ -22,7 +22,16 @@ export function createFallbackProcessedChunk(chunk: string): ProcessedChunk {
       "This section could not be rewritten, but the article text is ready to explore.",
     summary: `In this section, the article develops this idea: ${summarySeed}`,
     question:
-      "What is the main idea this section wants you to remember, and how does it connect to the article so far?",
+      "What is the main idea this section wants you to remember?",
+    options: [
+      "A) The author is developing the central argument of this section.",
+      "B) The section is only decorative background.",
+      "C) The section is unrelated to the article.",
+      "D) The author is changing topics completely.",
+    ],
+    answer: "A",
+    explanation:
+      "The section is part of the article's central argument, so the main idea matters for the larger piece.",
   };
 }
 

@@ -27,8 +27,10 @@ import type {
   SegmentType,
 } from "@/types";
 
-type Stage = "narration" | "summary" | "quiz" | null;
+type Stage = "narration" | "summary" | "checkpoint" | "quiz" | "feedback" | null;
 type PlaybackSegmentType = Exclude<SegmentType, "chat">;
+type Checkpoint = { startIndex: number; endIndex: number } | null;
+type QuizFeedback = { correct: boolean; text: string } | null;
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -111,6 +113,10 @@ export default function Home() {
   const [finalSummary, setFinalSummary] = useState("");
   const [error, setError] = useState("");
   const [savedSessions, setSavedSessions] = useState<ListeningSession[]>([]);
+  const [pendingCheckpoint, setPendingCheckpoint] = useState<Checkpoint>(null);
+  const [quizFeedback, setQuizFeedback] = useState<QuizFeedback>(null);
+  const [correctQuizCount, setCorrectQuizCount] = useState(0);
+  const [answeredQuizIds, setAnsweredQuizIds] = useState<string[]>([]);
   const [isPreparing, startPreparingTransition] = useTransition();
   const [isChatting, startChatTransition] = useTransition();
   const playbackTimeoutRef = useRef<number | null>(null);
@@ -126,7 +132,13 @@ export default function Home() {
     }
 
     const stageFraction =
-      currentStage === "narration" ? 0.2 : currentStage === "summary" ? 0.55 : currentStage === "quiz" ? 0.9 : 0;
+      currentStage === "narration"
+        ? 0.2
+        : currentStage === "summary"
+          ? 0.55
+          : currentStage === "checkpoint" || currentStage === "quiz" || currentStage === "feedback"
+            ? 0.9
+            : 0;
 
     return Math.min(
       100,
@@ -135,9 +147,8 @@ export default function Home() {
   }, [completedChunks, currentStage, processedChunks.length]);
 
   const insightScore = useMemo(() => {
-    const questionCount = chatMessages.filter((message) => message.role === "user").length;
-    return Math.min(99, completedChunks * 11 + questionCount * 7 + (article ? 8 : 0));
-  }, [article, chatMessages, completedChunks]);
+    return Math.min(99, completedChunks + correctQuizCount * 3);
+  }, [completedChunks, correctQuizCount]);
 
   const unfinishedSessions = useMemo(
     () =>
@@ -149,6 +160,14 @@ export default function Home() {
 
   const currentDisplayText = useMemo(() => {
     const chunk = processedChunks[currentChunk];
+
+    if (currentStage === "checkpoint") {
+      return "You reached a checkpoint. Keep listening, or take a quick recap and quiz to lock in the last two paragraphs.";
+    }
+
+    if (currentStage === "feedback" && quizFeedback) {
+      return quizFeedback.text;
+    }
 
     if (!chunk) {
       return "";
@@ -163,7 +182,12 @@ export default function Home() {
     }
 
     return chunk.narration;
-  }, [currentChunk, currentStage, processedChunks]);
+  }, [currentChunk, currentStage, processedChunks, quizFeedback]);
+
+  const activeQuizChunk = useMemo(() => {
+    const checkpointIndex = pendingCheckpoint?.endIndex ?? currentChunk;
+    return processedChunks[checkpointIndex] ?? null;
+  }, [currentChunk, pendingCheckpoint, processedChunks]);
 
   const canStart =
     processedChunks.length > 0 &&
@@ -171,12 +195,14 @@ export default function Home() {
       playerState === "NARRATING" ||
       playerState === "SUMMARIZING" ||
       playerState === "QUIZZING" ||
+      playerState === "FEEDBACK" ||
       playerState === "CHATTING");
 
   const canPause =
     playerState === "NARRATING" ||
     playerState === "SUMMARIZING" ||
     playerState === "QUIZZING" ||
+    playerState === "FEEDBACK" ||
     playerState === "CHATTING";
 
   useEffect(() => {
@@ -205,6 +231,7 @@ export default function Home() {
       finalSummary,
       chatMessages,
       insightScore,
+      correctQuizCount,
       updatedAt: new Date().toISOString(),
     };
 
@@ -223,6 +250,7 @@ export default function Home() {
     finalSummary,
     insightScore,
     processedChunks,
+    correctQuizCount,
   ]);
 
   useEffect(() => {
@@ -245,6 +273,17 @@ export default function Home() {
         return blob;
       });
     },
+    [ensureAudio]
+  );
+
+  const fetchCustomAudio = useCallback(
+    async (key: string, text: string, instructions: string) =>
+      ensureAudio(key, async () =>
+        postAudio("/api/tts", {
+          text,
+          instructions,
+        })
+      ),
     [ensureAudio]
   );
 
@@ -272,7 +311,7 @@ export default function Home() {
         fetchSegmentAudio(
           index,
           "question",
-          chunk.question,
+          `${chunk.question} ${(chunk.options ?? []).join(" ")}`,
           "Ask this like an intelligent game prompt with a little suspense."
         ),
       ]);
@@ -307,7 +346,7 @@ export default function Home() {
           stage: "summary",
         },
         question: {
-          text: chunk.question,
+          text: `${chunk.question} ${(chunk.options ?? []).join(" ")}`,
           instructions:
             "Ask this like a reflective quiz host. End with a short pause for thought.",
           state: "QUIZZING",
@@ -330,9 +369,25 @@ export default function Home() {
 
         await playUrl(audioUrl, () => {
           if (type === "narration") {
+            setCompletedChunks((previous) => Math.max(previous, index + 1));
+            setCurrentStage(null);
+
+            const shouldCheckpoint =
+              (index + 1) % 2 === 0 || index >= processedChunks.length - 1;
+
+            if (shouldCheckpoint) {
+              setPendingCheckpoint({
+                startIndex: Math.max(0, index - 1),
+                endIndex: index,
+              });
+              setCurrentStage("checkpoint");
+              setPlayerState("CHECKPOINT");
+              return;
+            }
+
             playbackTimeoutRef.current = window.setTimeout(() => {
-              void playChunkSegmentRef.current?.(index, "summary");
-            }, 250);
+              void playChunkSegmentRef.current?.(index + 1, "narration");
+            }, 650);
             return;
           }
 
@@ -343,17 +398,8 @@ export default function Home() {
             return;
           }
 
-          setCompletedChunks(index + 1);
-          setCurrentStage(null);
-
-          if (index >= processedChunks.length - 1) {
-            setPlayerState("READY");
-            return;
-          }
-
-          playbackTimeoutRef.current = window.setTimeout(() => {
-            void playChunkSegmentRef.current?.(index + 1, "narration");
-          }, 900);
+          setCurrentStage("quiz");
+          setPlayerState("QUIZZING");
         });
       } catch (playbackError) {
         const message =
@@ -401,6 +447,10 @@ export default function Home() {
     setCurrentChunk(0);
     setCompletedChunks(0);
     setCurrentStage(null);
+    setPendingCheckpoint(null);
+    setQuizFeedback(null);
+    setCorrectQuizCount(0);
+    setAnsweredQuizIds([]);
     setFinalSummary("");
     setChatMessages([]);
     setPlayerState("PREPARING");
@@ -488,6 +538,10 @@ export default function Home() {
     setCurrentChunk(session.currentChunk);
     setCompletedChunks(session.completedChunks);
     setCurrentStage(null);
+    setPendingCheckpoint(null);
+    setQuizFeedback(null);
+    setCorrectQuizCount(session.correctQuizCount ?? 0);
+    setAnsweredQuizIds([]);
     setChatMessages(session.chatMessages);
     setFinalSummary(session.finalSummary);
     setError("");
@@ -501,6 +555,120 @@ export default function Home() {
     }
 
     await playChunkSegment(currentChunk, "narration");
+  }
+
+  async function handleKeepListening() {
+    if (!pendingCheckpoint) {
+      return;
+    }
+
+    const nextIndex = pendingCheckpoint.endIndex + 1;
+    setPendingCheckpoint(null);
+    setQuizFeedback(null);
+
+    if (nextIndex >= processedChunks.length) {
+      setCurrentStage(null);
+      setPlayerState("READY");
+      return;
+    }
+
+    await playChunkSegment(nextIndex, "narration");
+  }
+
+  async function handleRecapAndQuiz() {
+    if (!pendingCheckpoint) {
+      return;
+    }
+
+    const checkpoint = pendingCheckpoint;
+    const checkpointChunks = processedChunks.slice(
+      checkpoint.startIndex,
+      checkpoint.endIndex + 1
+    );
+    const quizChunk = processedChunks[checkpoint.endIndex];
+
+    if (!quizChunk) {
+      return;
+    }
+
+    const recapText = `Quick recap: ${checkpointChunks
+      .map((chunk) => chunk.summary)
+      .join(" ")}`;
+    const quizText = `${quizChunk.question} ${(quizChunk.options ?? []).join(" ")}`;
+
+    try {
+      setCurrentChunk(checkpoint.endIndex);
+      setCurrentStage("summary");
+      setPlayerState("SUMMARIZING");
+
+      const recapUrl = await fetchCustomAudio(
+        `checkpoint_${checkpoint.endIndex}_recap`,
+        recapText,
+        "Give this as a short, warm recap in a clear feminine narrator voice."
+      );
+
+      await playUrl(recapUrl);
+
+      setCurrentStage("quiz");
+      setPlayerState("QUIZZING");
+
+      const quizUrl = await fetchCustomAudio(
+        `checkpoint_${checkpoint.endIndex}_quiz`,
+        quizText,
+        "Ask the quiz in a friendly teacher voice. Keep it crisp and clear."
+      );
+
+      await playUrl(quizUrl);
+    } catch (playbackError) {
+      const message =
+        playbackError instanceof Error
+          ? playbackError.message
+          : "Audio playback failed.";
+      console.error(playbackError);
+      setError(
+        message.includes("OPENAI_API_KEY") || message.includes("401")
+          ? "The narration voice is not connected. Check OPENAI_API_KEY in Vercel, redeploy, and try again."
+          : "The recap audio could not play. Tap Recap & Quiz again, and make sure the browser tab is not muted."
+      );
+      setPlayerState("ERROR");
+      setCurrentStage(null);
+    }
+  }
+
+  async function handleQuizAnswer(option: string) {
+    if (!pendingCheckpoint || !activeQuizChunk) {
+      return;
+    }
+
+    const answer = activeQuizChunk.answer ?? "A";
+    const explanation =
+      activeQuizChunk.explanation ??
+      "This answer best captures the main point from the paragraph.";
+    const correct = option === answer;
+    const quizId = `${pendingCheckpoint.endIndex}_${answer}`;
+    const feedbackText = correct
+      ? `Correct. ${explanation}`
+      : `Not quite. ${explanation}`;
+
+    setQuizFeedback({ correct, text: feedbackText });
+    setCurrentStage("feedback");
+    setPlayerState("FEEDBACK");
+
+    if (correct && !answeredQuizIds.includes(quizId)) {
+      setAnsweredQuizIds((previous) => [...previous, quizId]);
+      setCorrectQuizCount((previous) => previous + 1);
+    }
+
+    try {
+      const feedbackUrl = await fetchCustomAudio(
+        `checkpoint_${pendingCheckpoint.endIndex}_feedback_${option}`,
+        feedbackText,
+        "Give this feedback warmly and briefly in a clear feminine voice."
+      );
+      await playUrl(feedbackUrl);
+    } catch (playbackError) {
+      console.error(playbackError);
+    }
   }
 
   function handlePause() {
@@ -525,7 +693,8 @@ export default function Home() {
     }
 
     const previousIndex = Math.max(0, currentChunk - 1);
-    setCompletedChunks(previousIndex);
+    setPendingCheckpoint(null);
+    setQuizFeedback(null);
     await playChunkSegment(previousIndex, "narration");
   }
 
@@ -540,7 +709,8 @@ export default function Home() {
     }
 
     const nextIndex = Math.min(processedChunks.length - 1, currentChunk + 1);
-    setCompletedChunks(nextIndex);
+    setPendingCheckpoint(null);
+    setQuizFeedback(null);
     await playChunkSegment(nextIndex, "narration");
   }
 
@@ -556,6 +726,8 @@ export default function Home() {
     if (processedChunks.length) {
       setPlayerState("READY");
       setCurrentStage(null);
+      setPendingCheckpoint(null);
+      setQuizFeedback(null);
     }
 
     const nextMessages: ChatMessage[] = [
@@ -614,6 +786,10 @@ export default function Home() {
     setCurrentChunk(0);
     setCompletedChunks(0);
     setCurrentStage(null);
+    setPendingCheckpoint(null);
+    setQuizFeedback(null);
+    setCorrectQuizCount(0);
+    setAnsweredQuizIds([]);
     setChatMessages([]);
     setFinalSummary("");
     setError("");
@@ -667,7 +843,7 @@ export default function Home() {
             <div>
               <p className="text-sm font-black tracking-tight text-white">ReadAloud</p>
               <p className="text-xs font-semibold text-slate-400">
-                {listenerName ? `For ${listenerName}` : "Audio learning OS"}
+                {listenerName ? `Welcome ${listenerName} ⭐` : "Audio learning OS"}
               </p>
             </div>
           </div>
@@ -723,6 +899,9 @@ export default function Home() {
               onReset={handleReset}
               onPrevious={handlePreviousChunk}
               onNext={handleNextChunk}
+              onKeepListening={handleKeepListening}
+              onRecapQuiz={handleRecapAndQuiz}
+              onSelectQuizAnswer={handleQuizAnswer}
               progressPercent={progressPercent}
               insightScore={insightScore}
               completedChunks={completedChunks}
@@ -732,6 +911,8 @@ export default function Home() {
               finalSummary={finalSummary}
               displayText={currentDisplayText}
               listenerName={listenerName}
+              quizOptions={activeQuizChunk?.options ?? []}
+              quizFeedback={quizFeedback?.text ?? ""}
             />
           </div>
         </section>
