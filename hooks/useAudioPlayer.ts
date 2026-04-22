@@ -27,7 +27,7 @@ export function useAudioPlayer() {
     return blobUrl;
   }
 
-  async function playUrl(url: string, onEnded?: () => void) {
+  async function playOne(url: string) {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -40,13 +40,25 @@ export function useAudioPlayer() {
 
     return new Promise<void>((resolve, reject) => {
       audio.onended = () => {
-        onEnded?.();
         resolve();
       };
       audio.onerror = () => reject(new Error("Audio playback failed."));
 
       void audio.play().catch(reject);
     });
+  }
+
+  async function playUrl(url: string, onEnded?: () => void) {
+    await playOne(url);
+    onEnded?.();
+  }
+
+  async function playUrls(urls: string[], onEnded?: () => void) {
+    for (const url of urls) {
+      await playOne(url);
+    }
+
+    onEnded?.();
   }
 
   function stop() {
@@ -72,6 +84,7 @@ export function useAudioPlayer() {
     audioCache,
     ensureAudio,
     playUrl,
+    playUrls,
     stop,
   };
 }

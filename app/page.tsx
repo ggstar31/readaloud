@@ -82,6 +82,45 @@ function cacheKey(index: number, type: SegmentType) {
   return `chunk_${index}_${type}`;
 }
 
+function splitSpeechText(text: string, maxLength = 1800) {
+  const clean = text.replace(/\s+/g, " ").trim();
+
+  if (clean.length <= maxLength) {
+    return [clean];
+  }
+
+  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
+  const parts: string[] = [];
+  let current = "";
+
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    const candidate = current ? `${current} ${trimmed}` : trimmed;
+
+    if (candidate.length > maxLength && current) {
+      parts.push(current);
+      current = trimmed;
+      continue;
+    }
+
+    if (trimmed.length > maxLength) {
+      for (let start = 0; start < trimmed.length; start += maxLength) {
+        parts.push(trimmed.slice(start, start + maxLength));
+      }
+      current = "";
+      continue;
+    }
+
+    current = candidate;
+  }
+
+  if (current) {
+    parts.push(current);
+  }
+
+  return parts.filter(Boolean);
+}
+
 function formatError(message: string) {
   if (/api_key|no llm provider key|key is missing/i.test(message)) {
     return "The narration AI keys are not set correctly in Vercel yet. Update the environment variables, redeploy, and try again.";
@@ -124,7 +163,7 @@ export default function Home() {
     ((index: number, type: PlaybackSegmentType) => Promise<void>) | null
   >(null);
 
-  const { ensureAudio, playUrl, stop } = useAudioPlayer();
+  const { ensureAudio, playUrls, stop } = useAudioPlayer();
 
   const progressPercent = useMemo(() => {
     if (!processedChunks.length) {
@@ -263,26 +302,34 @@ export default function Home() {
 
   const fetchSegmentAudio = useCallback(
     async (index: number, type: SegmentType, text: string, instructions: string) => {
-      const key = cacheKey(index, type);
+      const parts = splitSpeechText(text);
 
-      return ensureAudio(key, async () => {
-        const blob = await postAudio("/api/tts", {
-          text,
-          instructions,
-        });
-        return blob;
-      });
+      return Promise.all(
+        parts.map((part, partIndex) =>
+          ensureAudio(`${cacheKey(index, type)}_${partIndex}`, async () => {
+            const blob = await postAudio("/api/tts", {
+              text: part,
+              instructions,
+            });
+            return blob;
+          })
+        )
+      );
     },
     [ensureAudio]
   );
 
   const fetchCustomAudio = useCallback(
     async (key: string, text: string, instructions: string) =>
-      ensureAudio(key, async () =>
-        postAudio("/api/tts", {
-          text,
-          instructions,
-        })
+      Promise.all(
+        splitSpeechText(text).map((part, partIndex) =>
+          ensureAudio(`${key}_${partIndex}`, async () =>
+            postAudio("/api/tts", {
+              text: part,
+              instructions,
+            })
+          )
+        )
       ),
     [ensureAudio]
   );
@@ -360,14 +407,14 @@ export default function Home() {
       setPlayerState(payload.state);
 
       try {
-        const audioUrl = await fetchSegmentAudio(
+        const audioUrls = await fetchSegmentAudio(
           index,
           type,
           payload.text,
           payload.instructions
         );
 
-        await playUrl(audioUrl, () => {
+        await playUrls(audioUrls, () => {
           if (type === "narration") {
             setCompletedChunks((previous) => Math.max(previous, index + 1));
             setCurrentStage(null);
@@ -410,7 +457,7 @@ export default function Home() {
         setError(
           message.includes("OPENAI_API_KEY") || message.includes("401")
             ? "The narration voice is not connected. Check OPENAI_API_KEY in Vercel, redeploy, and try again."
-            : "The narration audio could not play. Tap Play again, and make sure the browser tab is not muted."
+            : `The narration audio could not play. Detail: ${message.slice(0, 180)}`
         );
         setCurrentStage(null);
         setPlayerState("ERROR");
@@ -421,7 +468,7 @@ export default function Home() {
         void prefetchChunkAudio(index + 1);
       }
     },
-    [fetchSegmentAudio, playUrl, prefetchChunkAudio, processedChunks]
+    [fetchSegmentAudio, playUrls, prefetchChunkAudio, processedChunks]
   );
 
   useEffect(() => {
@@ -601,24 +648,24 @@ export default function Home() {
       setCurrentStage("summary");
       setPlayerState("SUMMARIZING");
 
-      const recapUrl = await fetchCustomAudio(
+      const recapUrls = await fetchCustomAudio(
         `checkpoint_${checkpoint.endIndex}_recap`,
         recapText,
         "Give this as a short, warm recap in a clear feminine narrator voice."
       );
 
-      await playUrl(recapUrl);
+      await playUrls(recapUrls);
 
       setCurrentStage("quiz");
       setPlayerState("QUIZZING");
 
-      const quizUrl = await fetchCustomAudio(
+      const quizUrls = await fetchCustomAudio(
         `checkpoint_${checkpoint.endIndex}_quiz`,
         quizText,
         "Ask the quiz in a friendly teacher voice. Keep it crisp and clear."
       );
 
-      await playUrl(quizUrl);
+      await playUrls(quizUrls);
     } catch (playbackError) {
       const message =
         playbackError instanceof Error
@@ -628,7 +675,7 @@ export default function Home() {
       setError(
         message.includes("OPENAI_API_KEY") || message.includes("401")
           ? "The narration voice is not connected. Check OPENAI_API_KEY in Vercel, redeploy, and try again."
-          : "The recap audio could not play. Tap Recap & Quiz again, and make sure the browser tab is not muted."
+          : `The recap audio could not play. Detail: ${message.slice(0, 180)}`
       );
       setPlayerState("ERROR");
       setCurrentStage(null);
@@ -660,12 +707,12 @@ export default function Home() {
     }
 
     try {
-      const feedbackUrl = await fetchCustomAudio(
+      const feedbackUrls = await fetchCustomAudio(
         `checkpoint_${pendingCheckpoint.endIndex}_feedback_${option}`,
         feedbackText,
         "Give this feedback warmly and briefly in a clear feminine voice."
       );
-      await playUrl(feedbackUrl);
+      await playUrls(feedbackUrls);
     } catch (playbackError) {
       console.error(playbackError);
     }
@@ -753,15 +800,13 @@ export default function Home() {
         setChatMessages((previous) => [...previous, assistantMessage]);
         setPlayerState("CHATTING");
 
-        const audioUrl = await ensureAudio(`chat_${Date.now()}`, async () =>
-          postAudio("/api/tts", {
-            text: response.reply,
-            instructions:
-              "Speak like an articulate reading companion answering a curious listener.",
-          })
+        const audioUrls = await fetchCustomAudio(
+          `chat_${Date.now()}`,
+          response.reply,
+          "Speak like an articulate reading companion answering a curious listener."
         );
 
-        await playUrl(audioUrl);
+        await playUrls(audioUrls);
 
         if (processedChunks.length) {
           setPlayerState("READY");

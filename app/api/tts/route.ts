@@ -1,32 +1,4 @@
-const SPEECH_INPUT_LIMIT = 2800;
-
-function splitForSpeech(text: string) {
-  const clean = text.replace(/\s+/g, " ").trim();
-
-  if (clean.length <= SPEECH_INPUT_LIMIT) {
-    return [clean];
-  }
-
-  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const sentence of sentences) {
-    const candidate = current ? `${current} ${sentence.trim()}` : sentence.trim();
-    if (candidate.length > SPEECH_INPUT_LIMIT && current) {
-      chunks.push(current);
-      current = sentence.trim();
-      continue;
-    }
-    current = candidate;
-  }
-
-  if (current) {
-    chunks.push(current);
-  }
-
-  return chunks;
-}
+const SPEECH_INPUT_LIMIT = 2600;
 
 export async function POST(request: Request) {
   try {
@@ -46,13 +18,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const parts = splitForSpeech(text);
-    const audioBuffers: Uint8Array[] = [];
+    const input = text.replace(/\s+/g, " ").trim();
+
+    if (input.length > SPEECH_INPUT_LIMIT) {
+      return Response.json(
+        {
+          error:
+            "Text is too long for one speech request. The client should split it before calling TTS.",
+        },
+        { status: 413 }
+      );
+    }
 
     const preferredModel = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
     const preferredVoice = process.env.OPENAI_TTS_VOICE ?? "coral";
 
-    async function createSpeech(part: string) {
+    async function createSpeech() {
       const preferred = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
         headers: {
@@ -62,7 +43,7 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           model: preferredModel,
           voice: preferredVoice,
-          input: part,
+          input,
           instructions:
             instructions ??
             "Speak in a warm, clear, feminine narration style for attentive listening.",
@@ -84,8 +65,8 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify({
           model: "tts-1",
-          voice: "nova",
-          input: part,
+          voice: "coral",
+          input,
           response_format: "mp3",
         }),
       });
@@ -100,23 +81,9 @@ export async function POST(request: Request) {
       return fallback;
     }
 
-    for (const part of parts) {
-      const response = await createSpeech(part);
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      audioBuffers.push(bytes);
-    }
+    const response = await createSpeech();
 
-    const merged = new Uint8Array(
-      audioBuffers.reduce((sum, current) => sum + current.length, 0)
-    );
-    let offset = 0;
-
-    for (const chunk of audioBuffers) {
-      merged.set(chunk, offset);
-      offset += chunk.length;
-    }
-
-    return new Response(merged, {
+    return new Response(await response.arrayBuffer(), {
       headers: {
         "Content-Type": "audio/mpeg",
         "Cache-Control": "no-store",
