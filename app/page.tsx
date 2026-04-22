@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArticleInput } from "@/components/ArticleInput";
 import { ChatDrawer } from "@/components/ChatDrawer";
@@ -9,8 +10,22 @@ import {
   createFallbackFinalSummary,
   createFallbackProcessedChunk,
 } from "@/lib/fallback-processing";
+import {
+  loadListenerName,
+  loadListeningHistory,
+  makeSessionId,
+  saveListenerName,
+  saveListeningSession,
+} from "@/lib/listening-history";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
-import type { Article, ChatMessage, PlayerState, ProcessedChunk, SegmentType } from "@/types";
+import type {
+  Article,
+  ChatMessage,
+  ListeningSession,
+  PlayerState,
+  ProcessedChunk,
+  SegmentType,
+} from "@/types";
 
 type Stage = "narration" | "summary" | "quiz" | null;
 type PlaybackSegmentType = Exclude<SegmentType, "chat">;
@@ -82,6 +97,9 @@ function formatError(message: string) {
 }
 
 export default function Home() {
+  const [listenerName, setListenerName] = useState("");
+  const [nameDraft, setNameDraft] = useState("");
+  const [hasLoadedProfile, setHasLoadedProfile] = useState(false);
   const [url, setUrl] = useState("");
   const [article, setArticle] = useState<Article | null>(null);
   const [processedChunks, setProcessedChunks] = useState<ProcessedChunk[]>([]);
@@ -92,6 +110,7 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [finalSummary, setFinalSummary] = useState("");
   const [error, setError] = useState("");
+  const [savedSessions, setSavedSessions] = useState<ListeningSession[]>([]);
   const [isPreparing, startPreparingTransition] = useTransition();
   const [isChatting, startChatTransition] = useTransition();
   const playbackTimeoutRef = useRef<number | null>(null);
@@ -119,6 +138,14 @@ export default function Home() {
     const questionCount = chatMessages.filter((message) => message.role === "user").length;
     return Math.min(99, completedChunks * 11 + questionCount * 7 + (article ? 8 : 0));
   }, [article, chatMessages, completedChunks]);
+
+  const unfinishedSessions = useMemo(
+    () =>
+      savedSessions
+        .filter((session) => session.completedChunks < session.processedChunks.length)
+        .slice(0, 3),
+    [savedSessions]
+  );
 
   const currentDisplayText = useMemo(() => {
     const chunk = processedChunks[currentChunk];
@@ -151,6 +178,52 @@ export default function Home() {
     playerState === "SUMMARIZING" ||
     playerState === "QUIZZING" ||
     playerState === "CHATTING";
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const storedName = loadListenerName();
+      setListenerName(storedName);
+      setNameDraft(storedName);
+      setSavedSessions(loadListeningHistory());
+      setHasLoadedProfile(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!article || !processedChunks.length) {
+      return;
+    }
+
+    const session: ListeningSession = {
+      id: makeSessionId(article.url || article.title),
+      article,
+      processedChunks,
+      currentChunk,
+      completedChunks,
+      finalSummary,
+      chatMessages,
+      insightScore,
+      updatedAt: new Date().toISOString(),
+    };
+
+    saveListeningSession(session);
+
+    const timer = window.setTimeout(() => {
+      setSavedSessions(loadListeningHistory());
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    article,
+    chatMessages,
+    completedChunks,
+    currentChunk,
+    finalSummary,
+    insightScore,
+    processedChunks,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -247,40 +320,56 @@ export default function Home() {
       setCurrentStage(payload.stage);
       setPlayerState(payload.state);
 
-      const audioUrl = await fetchSegmentAudio(
-        index,
-        type,
-        payload.text,
-        payload.instructions
-      );
+      try {
+        const audioUrl = await fetchSegmentAudio(
+          index,
+          type,
+          payload.text,
+          payload.instructions
+        );
 
-      await playUrl(audioUrl, () => {
-        if (type === "narration") {
+        await playUrl(audioUrl, () => {
+          if (type === "narration") {
+            playbackTimeoutRef.current = window.setTimeout(() => {
+              void playChunkSegmentRef.current?.(index, "summary");
+            }, 250);
+            return;
+          }
+
+          if (type === "summary") {
+            playbackTimeoutRef.current = window.setTimeout(() => {
+              void playChunkSegmentRef.current?.(index, "question");
+            }, 250);
+            return;
+          }
+
+          setCompletedChunks(index + 1);
+          setCurrentStage(null);
+
+          if (index >= processedChunks.length - 1) {
+            setPlayerState("READY");
+            return;
+          }
+
           playbackTimeoutRef.current = window.setTimeout(() => {
-            void playChunkSegmentRef.current?.(index, "summary");
-          }, 250);
-          return;
-        }
-
-        if (type === "summary") {
-          playbackTimeoutRef.current = window.setTimeout(() => {
-            void playChunkSegmentRef.current?.(index, "question");
-          }, 250);
-          return;
-        }
-
-        setCompletedChunks(index + 1);
+            void playChunkSegmentRef.current?.(index + 1, "narration");
+          }, 900);
+        });
+      } catch (playbackError) {
+        const message =
+          playbackError instanceof Error
+            ? playbackError.message
+            : "Audio playback failed.";
+        console.error(playbackError);
+        setError(
+          message.includes("OPENAI_API_KEY") || message.includes("401")
+            ? "The narration voice is not connected. Check OPENAI_API_KEY in Vercel, redeploy, and try again."
+            : "The narration audio could not play. Tap Play again, and make sure the browser tab is not muted."
+        );
         setCurrentStage(null);
-
-        if (index >= processedChunks.length - 1) {
-          setPlayerState("READY");
-          return;
-        }
-
-        playbackTimeoutRef.current = window.setTimeout(() => {
-          void playChunkSegmentRef.current?.(index + 1, "narration");
-        }, 900);
-      });
+        setPlayerState("ERROR");
+        return;
+      }
 
       if (type === "narration") {
         void prefetchChunkAudio(index + 1);
@@ -374,6 +463,36 @@ export default function Home() {
         setPlayerState("ERROR");
       }
     });
+  }
+
+  function handleSaveProfile() {
+    const trimmed = nameDraft.trim();
+
+    if (!trimmed) {
+      return;
+    }
+
+    saveListenerName(trimmed);
+    setListenerName(trimmed);
+  }
+
+  function handleRestoreSession(session: ListeningSession) {
+    stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
+    }
+
+    setUrl(session.article.url);
+    setArticle(session.article);
+    setProcessedChunks(session.processedChunks);
+    setCurrentChunk(session.currentChunk);
+    setCompletedChunks(session.completedChunks);
+    setCurrentStage(null);
+    setChatMessages(session.chatMessages);
+    setFinalSummary(session.finalSummary);
+    setError("");
+    setPlayerState("READY");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleStartPlayback() {
@@ -503,32 +622,78 @@ export default function Home() {
 
   return (
     <main className="aurora-bg min-h-screen bg-[linear-gradient(180deg,#140c2d_0%,#0d1328_46%,#070817_100%)] text-slate-100">
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+      {hasLoadedProfile && !listenerName ? (
+        <section className="fixed inset-0 z-50 grid place-items-center bg-[#070817]/90 px-5 backdrop-blur-2xl">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSaveProfile();
+            }}
+            className="app-glass w-full max-w-md rounded-[2rem] p-6 text-white"
+          >
+            <p className="text-[11px] font-black uppercase tracking-[0.36em] text-cyan-200">
+              First things first
+            </p>
+            <h1 className="mt-4 text-4xl font-black leading-tight tracking-[-0.06em]">
+              What should we call you?
+            </h1>
+            <p className="mt-4 text-base font-semibold leading-7 text-slate-300">
+              Your name appears in the player and makes the audio quest feel personal.
+            </p>
+            <input
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              autoFocus
+              placeholder="Type your name"
+              className="mt-6 min-h-14 w-full rounded-[1.2rem] border border-white/10 bg-white/10 px-4 text-lg font-bold text-white outline-none placeholder:text-slate-500 focus:border-cyan-300"
+            />
+            <button
+              type="submit"
+              disabled={!nameDraft.trim()}
+              className="mt-4 min-h-14 w-full rounded-[1.25rem] bg-[linear-gradient(135deg,#a855f7,#22d3ee)] text-base font-black text-white shadow-[0_20px_70px_rgba(34,211,238,0.28)] transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Enter ReadAloud
+            </button>
+          </form>
+        </section>
+      ) : null}
+
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-7 px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex items-center justify-between rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 backdrop-blur-2xl">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-400 to-cyan-300 text-lg font-black text-slate-950">
-              R
+              {(listenerName || "R").slice(0, 1).toUpperCase()}
             </div>
             <div>
               <p className="text-sm font-black tracking-tight text-white">ReadAloud</p>
-              <p className="text-xs font-semibold text-slate-400">Audio learning OS</p>
+              <p className="text-xs font-semibold text-slate-400">
+                {listenerName ? `For ${listenerName}` : "Audio learning OS"}
+              </p>
             </div>
           </div>
-          <div className="rounded-full bg-white/8 px-4 py-2 text-sm font-black text-white">
-            {insightScore} IQ
+          <div className="flex items-center gap-2">
+            <Link
+              href="/history"
+              className="rounded-full border border-white/10 bg-white/8 px-4 py-2 text-sm font-black text-white transition hover:bg-white/14"
+            >
+              History
+            </Link>
+            <div className="rounded-full bg-white/8 px-4 py-2 text-sm font-black text-white">
+              {insightScore} IQ
+            </div>
           </div>
         </header>
 
-        <section className="grid items-start gap-7 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="space-y-6 xl:sticky xl:top-6">
-            <div className="pt-5 sm:pt-10">
+        <section className="grid items-start gap-5 lg:gap-7 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="space-y-5 xl:sticky xl:top-5">
+            <div className="pt-2 sm:pt-8">
               <p className="text-[11px] font-black uppercase tracking-[0.4em] text-violet-300">
                 Now an experience
               </p>
-              <h1 className="mt-4 max-w-2xl text-5xl font-black leading-[0.95] tracking-[-0.07em] text-white sm:text-7xl">
+              <h1 className="mt-4 max-w-2xl text-5xl font-black leading-[0.92] tracking-[-0.07em] text-white sm:text-7xl">
                 Read articles like they are alive.
               </h1>
-              <p className="mt-6 max-w-xl text-lg font-semibold leading-8 text-slate-300">
+              <p className="mt-5 max-w-xl text-base font-semibold leading-8 text-slate-300 sm:text-lg">
                 Drop a link, press play, and get sharp narration, recaps, and
                 mind-sharpening checkpoints hands free.
               </p>
@@ -540,21 +705,6 @@ export default function Home() {
               onSubmit={handlePrepareArticle}
               isLoading={isPreparing}
             />
-
-            <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-              {[
-                ["Hands free", "Lean back and listen like a private briefing."],
-                ["Recaps", "Every section ends with a crisp memory lock."],
-                ["Earn IQ", "Progress and questions turn reading into a game."],
-              ].map(([title, body]) => (
-                <div key={title} className="app-glass rounded-[1.75rem] p-5">
-                  <p className="text-lg font-black text-white">{title}</p>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">
-                    {body}
-                  </p>
-                </div>
-              ))}
-            </div>
 
             {error ? (
               <div className="rounded-[1.5rem] border border-rose-400/25 bg-rose-400/10 px-5 py-4 text-sm font-semibold leading-7 text-rose-100">
@@ -581,7 +731,87 @@ export default function Home() {
               articleTitle={article?.title ?? ""}
               finalSummary={finalSummary}
               displayText={currentDisplayText}
+              listenerName={listenerName}
             />
+          </div>
+        </section>
+
+        <section className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="app-glass rounded-[2rem] p-5 sm:p-6">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.34em] text-cyan-200">
+                  Continue
+                </p>
+                <h2 className="mt-2 text-3xl font-black tracking-[-0.05em] text-white">
+                  Continue where you left off
+                </h2>
+              </div>
+              <Link
+                href="/history"
+                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-black text-white transition hover:bg-white/16"
+              >
+                Open history
+              </Link>
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              {unfinishedSessions.length ? (
+                unfinishedSessions.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => handleRestoreSession(session)}
+                    className="group rounded-[1.4rem] border border-white/10 bg-white/[0.06] p-4 text-left transition hover:border-cyan-200/40 hover:bg-white/[0.09]"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-lg font-black leading-6 text-white">
+                          {session.article.title}
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-slate-400">
+                          Paragraph {Math.min(session.currentChunk + 1, session.processedChunks.length)} of{" "}
+                          {session.processedChunks.length}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-cyan-200 px-3 py-1 text-xs font-black text-slate-950">
+                        Resume
+                      </span>
+                    </div>
+                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-violet-400 to-cyan-300"
+                        style={{
+                          width: `${Math.max(
+                            7,
+                            (session.completedChunks / session.processedChunks.length) * 100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-[1.4rem] border border-dashed border-white/12 bg-white/[0.04] p-5 text-sm font-semibold leading-7 text-slate-400">
+                  Unfinished articles will appear here after you start a listening session.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+            {[
+              ["Hands free", "Lean back and listen like a private briefing."],
+              ["Recaps", "Every section ends with a crisp memory lock."],
+              ["Earn IQ", "Progress and questions turn reading into a game."],
+            ].map(([title, body]) => (
+              <div key={title} className="app-glass rounded-[1.75rem] p-5">
+                <p className="text-lg font-black text-white">{title}</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-400">
+                  {body}
+                </p>
+              </div>
+            ))}
           </div>
         </section>
 

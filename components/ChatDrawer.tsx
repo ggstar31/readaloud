@@ -135,18 +135,24 @@ export function ChatDrawer({
     <>
       <button
         type="button"
-        onClick={() => setIsOpen(true)}
+        onClick={() => setIsOpen((value) => !value)}
         disabled={!isEnabled}
-        className="fixed bottom-8 right-6 z-30 inline-flex items-center gap-3 rounded-full bg-[linear-gradient(135deg,#22d3ee,#8b5cf6)] px-6 py-4 text-lg font-black text-white shadow-[0_22px_65px_rgba(34,211,238,0.38)] transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-45 lg:bottom-10 lg:right-10"
+        className={`fixed bottom-6 right-5 z-50 items-center gap-3 rounded-full bg-[linear-gradient(135deg,#22d3ee,#8b5cf6)] px-6 py-4 text-lg font-black text-white shadow-[0_22px_65px_rgba(34,211,238,0.38)] transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-45 lg:bottom-10 lg:right-10 ${
+          isOpen ? "hidden" : "inline-flex"
+        }`}
+        aria-expanded={isOpen}
       >
-        <span className="text-2xl">☁</span>
+        <span className="text-xl">◉</span>
         Ask
       </button>
 
       <section
-        className={`fixed inset-x-0 bottom-0 z-40 mx-auto max-w-3xl rounded-t-[2.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(22,18,38,0.98),rgba(8,10,20,0.99))] p-6 text-white shadow-[0_-26px_100px_rgba(0,0,0,0.55)] transition-transform duration-300 ${
-          isOpen ? "translate-y-0" : "translate-y-[calc(100%-5.25rem)]"
+        className={`fixed inset-x-3 bottom-3 z-40 mx-auto max-w-3xl rounded-[2.2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(22,18,38,0.98),rgba(8,10,20,0.99))] p-5 text-white shadow-[0_-26px_100px_rgba(0,0,0,0.55)] transition duration-300 sm:inset-x-6 sm:p-6 ${
+          isOpen
+            ? "translate-y-0 opacity-100"
+            : "pointer-events-none translate-y-[115%] opacity-0"
         }`}
+        aria-hidden={!isOpen}
       >
         <button
           type="button"
@@ -212,7 +218,7 @@ export function ChatDrawer({
                 } disabled:cursor-not-allowed disabled:opacity-50`}
                 aria-label="Voice note"
               >
-                ●
+                {isListening ? "■" : "◦"}
               </button>
             ) : null}
             <button

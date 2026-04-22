@@ -29,3 +29,15 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+export type ListeningSession = {
+  id: string;
+  article: Article;
+  processedChunks: ProcessedChunk[];
+  currentChunk: number;
+  completedChunks: number;
+  finalSummary: string;
+  chatMessages: ChatMessage[];
+  insightScore: number;
+  updatedAt: string;
+};

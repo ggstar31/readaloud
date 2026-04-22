@@ -34,6 +34,8 @@ export function useAudioPlayer() {
     }
 
     const audio = new Audio(url);
+    audio.preload = "auto";
+    audio.volume = 1;
     audioRef.current = audio;
 
     return new Promise<void>((resolve, reject) => {
