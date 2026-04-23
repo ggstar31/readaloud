@@ -1,43 +1,111 @@
 import type { ProcessedChunk } from "@/types";
+import {
+  firstSentencesForSpeech,
+  limitForSpeech,
+  sanitizeForSpeech,
+} from "@/lib/speech-text";
 
-function cleanText(text: string) {
-  return text
-    .replace(/\s+/g, " ")
-    .replace(/\[[^\]]*\]/g, "")
-    .trim();
+const STOP_WORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "also",
+  "because",
+  "before",
+  "being",
+  "between",
+  "could",
+  "every",
+  "from",
+  "have",
+  "into",
+  "only",
+  "other",
+  "their",
+  "there",
+  "these",
+  "they",
+  "this",
+  "through",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "with",
+  "would",
+]);
+
+function getTopic(text: string) {
+  const words = sanitizeForSpeech(text)
+    .toLowerCase()
+    .match(/[a-z][a-z-]{4,}/g) ?? [];
+  const counts = new Map<string, number>();
+
+  for (const word of words) {
+    if (STOP_WORDS.has(word)) {
+      continue;
+    }
+
+    counts.set(word, (counts.get(word) ?? 0) + 1);
+  }
+
+  const keywords = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([word]) => word.replace(/-/g, " "));
+
+  return keywords.length ? keywords.join(" and ") : "the author's argument";
 }
 
-function firstSentences(text: string, count: number) {
-  const sentences = cleanText(text).match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [];
-  return sentences.slice(0, count).join(" ").trim();
+function optionText(text: string) {
+  const clean = sanitizeForSpeech(text).replace(/[.!?]+$/g, "");
+
+  if (clean.length <= 120) {
+    return clean;
+  }
+
+  return `${clean.slice(0, 117).trim()}...`;
 }
 
 export function createFallbackProcessedChunk(chunk: string): ProcessedChunk {
-  const narration = cleanText(chunk).slice(0, 2400);
-  const summarySeed = firstSentences(chunk, 2) || narration.slice(0, 280);
+  const narration = sanitizeForSpeech(chunk).slice(0, 2400);
+  const firstIdea =
+    firstSentencesForSpeech(chunk, 1) ||
+    narration.slice(0, 220) ||
+    "the author is building the central argument";
+  const secondIdea =
+    firstSentencesForSpeech(chunk, 2).replace(firstIdea, "").trim() ||
+    "it connects back to the larger point of the article";
+  const topic = getTopic(chunk);
+  const answerIdea = optionText(firstIdea);
 
   return {
     narration:
       narration ||
       "This section could not be rewritten, but the article text is ready to explore.",
-    summary: `In this section, the article develops this idea: ${summarySeed}`,
-    question:
-      "What is the main idea this section wants you to remember?",
+    summary: limitForSpeech(
+      `In this section, the author develops this idea: ${firstIdea} To summarize, ${secondIdea}`,
+      420
+    ),
+    question: `Which option best captures this section's point about ${topic}?`,
     options: [
-      "A) The author is developing the central argument of this section.",
-      "B) The section is only decorative background.",
-      "C) The section is unrelated to the article.",
-      "D) The author is changing topics completely.",
+      `A) ${answerIdea}`,
+      `B) The section says ${topic} is not connected to the article's argument.`,
+      "C) The section mainly lists background details without a clear claim.",
+      "D) The section rejects the earlier argument and changes topic completely.",
     ],
     answer: "A",
-    explanation:
-      "The section is part of the article's central argument, so the main idea matters for the larger piece.",
+    explanation: limitForSpeech(
+      `The best answer is A because the section centers on this idea: ${answerIdea}.`,
+      220
+    ),
   };
 }
 
 export function createFallbackFinalSummary(title: string, summaries: string[]) {
   const usefulSummaries = summaries
-    .map(cleanText)
+    .map(sanitizeForSpeech)
     .filter(Boolean)
     .slice(0, 4);
 

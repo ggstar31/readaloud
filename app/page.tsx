@@ -17,6 +17,7 @@ import {
   saveListenerName,
   saveListeningSession,
 } from "@/lib/listening-history";
+import { limitForSpeech, sanitizeForSpeech } from "@/lib/speech-text";
 import { useBrowserSpeech } from "@/hooks/useBrowserSpeech";
 import type {
   Article,
@@ -87,6 +88,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [savedSessions, setSavedSessions] = useState<ListeningSession[]>([]);
   const [pendingCheckpoint, setPendingCheckpoint] = useState<Checkpoint>(null);
+  const [checkpointRecapText, setCheckpointRecapText] = useState("");
   const [quizFeedback, setQuizFeedback] = useState<QuizFeedback>(null);
   const [correctQuizCount, setCorrectQuizCount] = useState(0);
   const [answeredQuizIds, setAnsweredQuizIds] = useState<string[]>([]);
@@ -142,12 +144,12 @@ export default function Home() {
       return quizFeedback.text;
     }
 
-    if (!chunk) {
-      return "";
+    if (currentStage === "summary") {
+      return checkpointRecapText || chunk?.summary || "";
     }
 
-    if (currentStage === "summary") {
-      return chunk.summary;
+    if (!chunk) {
+      return "";
     }
 
     if (currentStage === "quiz") {
@@ -155,7 +157,7 @@ export default function Home() {
     }
 
     return chunk.narration;
-  }, [currentChunk, currentStage, processedChunks, quizFeedback]);
+  }, [checkpointRecapText, currentChunk, currentStage, processedChunks, quizFeedback]);
 
   const activeQuizChunk = useMemo(() => {
     const checkpointIndex = pendingCheckpoint?.endIndex ?? currentChunk;
@@ -270,12 +272,14 @@ export default function Home() {
       };
 
       const payload = payloadMap[type];
+      const spokenText = sanitizeForSpeech(payload.text);
       setCurrentChunk(index);
+      setCheckpointRecapText("");
       setCurrentStage(payload.stage);
       setPlayerState(payload.state);
 
       try {
-        await speak(payload.text, () => {
+        await speak(spokenText, () => {
           if (type !== "narration") {
             setCurrentStage("quiz");
             setPlayerState("QUIZZING");
@@ -311,6 +315,7 @@ export default function Home() {
         setError(
           `Free browser narration could not play. Detail: ${message.slice(0, 180)}`
         );
+        setCheckpointRecapText("");
         setCurrentStage(null);
         setPlayerState("ERROR");
         return;
@@ -338,6 +343,7 @@ export default function Home() {
     setCompletedChunks(0);
     setCurrentStage(null);
     setPendingCheckpoint(null);
+    setCheckpointRecapText("");
     setQuizFeedback(null);
     setCorrectQuizCount(0);
     setAnsweredQuizIds([]);
@@ -429,6 +435,7 @@ export default function Home() {
     setCompletedChunks(session.completedChunks);
     setCurrentStage(null);
     setPendingCheckpoint(null);
+    setCheckpointRecapText("");
     setQuizFeedback(null);
     setCorrectQuizCount(session.correctQuizCount ?? 0);
     setAnsweredQuizIds([]);
@@ -454,6 +461,7 @@ export default function Home() {
 
     const nextIndex = pendingCheckpoint.endIndex + 1;
     setPendingCheckpoint(null);
+    setCheckpointRecapText("");
     setQuizFeedback(null);
 
     if (nextIndex >= processedChunks.length) {
@@ -481,13 +489,17 @@ export default function Home() {
       return;
     }
 
-    const recapText = `Quick recap: ${checkpointChunks
-      .map((chunk) => chunk.summary)
-      .join(" ")}`;
-    const quizText = `${quizChunk.question} ${(quizChunk.options ?? []).join(" ")}`;
+    const recapText = limitForSpeech(
+      `Quick recap: ${checkpointChunks.map((chunk) => chunk.summary).join(" ")}`,
+      560
+    );
+    const quizText = sanitizeForSpeech(
+      `${quizChunk.question} ${(quizChunk.options ?? []).join(" ")}`
+    );
 
     try {
       setCurrentChunk(checkpoint.endIndex);
+      setCheckpointRecapText(recapText);
       setCurrentStage("summary");
       setPlayerState("SUMMARIZING");
 
@@ -507,6 +519,7 @@ export default function Home() {
         `Free browser recap could not play. Detail: ${message.slice(0, 180)}`
       );
       setPlayerState("ERROR");
+      setCheckpointRecapText("");
       setCurrentStage(null);
     }
   }
@@ -522,9 +535,10 @@ export default function Home() {
       "This answer best captures the main point from the paragraph.";
     const correct = option === answer;
     const quizId = `${pendingCheckpoint.endIndex}_${answer}`;
-    const feedbackText = correct
-      ? `Correct. ${explanation}`
-      : `Not quite. ${explanation}`;
+    const feedbackText = limitForSpeech(
+      correct ? `Correct. ${explanation}` : `Not quite. ${explanation}`,
+      280
+    );
 
     setQuizFeedback({ correct, text: feedbackText });
     setCurrentStage("feedback");
@@ -548,6 +562,7 @@ export default function Home() {
       window.clearTimeout(playbackTimeoutRef.current);
     }
     setCurrentStage(null);
+    setCheckpointRecapText("");
     if (processedChunks.length) {
       setPlayerState("READY");
     }
@@ -565,6 +580,7 @@ export default function Home() {
 
     const previousIndex = Math.max(0, currentChunk - 1);
     setPendingCheckpoint(null);
+    setCheckpointRecapText("");
     setQuizFeedback(null);
     await playChunkSegment(previousIndex, "narration");
   }
@@ -581,6 +597,7 @@ export default function Home() {
 
     const nextIndex = Math.min(processedChunks.length - 1, currentChunk + 1);
     setPendingCheckpoint(null);
+    setCheckpointRecapText("");
     setQuizFeedback(null);
     await playChunkSegment(nextIndex, "narration");
   }
@@ -598,6 +615,7 @@ export default function Home() {
       setPlayerState("READY");
       setCurrentStage(null);
       setPendingCheckpoint(null);
+      setCheckpointRecapText("");
       setQuizFeedback(null);
     }
 
@@ -624,7 +642,7 @@ export default function Home() {
         setChatMessages((previous) => [...previous, assistantMessage]);
         setPlayerState("CHATTING");
 
-        await speak(response.reply);
+        await speak(sanitizeForSpeech(response.reply));
 
         if (processedChunks.length) {
           setPlayerState("READY");
@@ -650,6 +668,7 @@ export default function Home() {
     setCompletedChunks(0);
     setCurrentStage(null);
     setPendingCheckpoint(null);
+    setCheckpointRecapText("");
     setQuizFeedback(null);
     setCorrectQuizCount(0);
     setAnsweredQuizIds([]);

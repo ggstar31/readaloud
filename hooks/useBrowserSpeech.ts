@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { sanitizeForSpeech } from "@/lib/speech-text";
 
 function getPreferredVoice(voices: SpeechSynthesisVoice[]) {
   const englishVoices = voices.filter((voice) => voice.lang.toLowerCase().startsWith("en"));
@@ -26,7 +27,7 @@ function getPreferredVoice(voices: SpeechSynthesisVoice[]) {
 }
 
 function splitForUtterances(text: string) {
-  const clean = text.replace(/\s+/g, " ").trim();
+  const clean = sanitizeForSpeech(text);
   const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
   const parts: string[] = [];
   let current = "";
@@ -121,6 +122,12 @@ export function useBrowserSpeech() {
           speakNext();
         };
         utterance.onerror = (event) => {
+          if (event.error === "interrupted" || event.error === "canceled") {
+            activeRef.current = false;
+            resolve();
+            return;
+          }
+
           activeRef.current = false;
           reject(new Error(`Browser narration failed: ${event.error}`));
         };
