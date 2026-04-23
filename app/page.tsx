@@ -28,7 +28,14 @@ import type {
   SegmentType,
 } from "@/types";
 
-type Stage = "narration" | "summary" | "checkpoint" | "quiz" | "feedback" | null;
+type Stage =
+  | "narration"
+  | "summary"
+  | "checkpoint"
+  | "quiz"
+  | "feedback"
+  | "complete"
+  | null;
 type PlaybackSegmentType = Exclude<SegmentType, "chat">;
 type Checkpoint = { startIndex: number; endIndex: number } | null;
 type QuizFeedback = { correct: boolean; text: string } | null;
@@ -115,6 +122,7 @@ export default function Home() {
   const [savedSessions, setSavedSessions] = useState<ListeningSession[]>([]);
   const [pendingCheckpoint, setPendingCheckpoint] = useState<Checkpoint>(null);
   const [checkpointRecapText, setCheckpointRecapText] = useState("");
+  const [completionMessage, setCompletionMessage] = useState("");
   const [quizFeedback, setQuizFeedback] = useState<QuizFeedback>(null);
   const [correctQuizCount, setCorrectQuizCount] = useState(0);
   const [answeredQuizIds, setAnsweredQuizIds] = useState<string[]>([]);
@@ -160,10 +168,23 @@ export default function Home() {
     [savedSessions]
   );
 
+  const isFinalCheckpoint = Boolean(
+    pendingCheckpoint &&
+      processedChunks.length &&
+      pendingCheckpoint.endIndex >= processedChunks.length - 1
+  );
+
   const currentDisplayText = useMemo(() => {
     const chunk = processedChunks[currentChunk];
 
+    if (currentStage === "complete") {
+      return completionMessage;
+    }
+
     if (currentStage === "checkpoint") {
+      if (isFinalCheckpoint) {
+        return "You're at the end of the article. Finish now, or take a quick recap and quiz to lock it in.";
+      }
       return "You reached a checkpoint. Keep listening, or take a quick recap and quiz to lock in the last two paragraphs.";
     }
 
@@ -184,7 +205,15 @@ export default function Home() {
     }
 
     return chunk.narration;
-  }, [checkpointRecapText, currentChunk, currentStage, processedChunks, quizFeedback]);
+  }, [
+    checkpointRecapText,
+    completionMessage,
+    currentChunk,
+    currentStage,
+    isFinalCheckpoint,
+    processedChunks,
+    quizFeedback,
+  ]);
 
   const activeQuizChunk = useMemo(() => {
     const checkpointIndex = pendingCheckpoint?.endIndex ?? currentChunk;
@@ -397,6 +426,7 @@ export default function Home() {
     setCurrentStage(null);
     setPendingCheckpoint(null);
     setCheckpointRecapText("");
+    setCompletionMessage("");
     setQuizFeedback(null);
     setCorrectQuizCount(0);
     setAnsweredQuizIds([]);
@@ -502,6 +532,7 @@ export default function Home() {
     setCurrentStage(null);
     setPendingCheckpoint(null);
     setCheckpointRecapText("");
+    setCompletionMessage("");
     setQuizFeedback(null);
     setCorrectQuizCount(session.correctQuizCount ?? 0);
     setAnsweredQuizIds([]);
@@ -532,12 +563,47 @@ export default function Home() {
     setQuizFeedback(null);
 
     if (nextIndex >= processedChunks.length) {
-      setCurrentStage(null);
-      setPlayerState("READY");
+      handleFinishArticle();
       return;
     }
 
     await playChunkSegment(nextIndex, "narration");
+  }
+
+  function handleFinishArticle() {
+    setPendingCheckpoint(null);
+    setCheckpointRecapText("");
+    setQuizFeedback(null);
+    setCompletionMessage(
+      "Woohoo, you've finished the article. Want to listen one more time?"
+    );
+    setCurrentStage("complete");
+    setPlayerState("READY");
+  }
+
+  async function handleReplayArticle() {
+    if (!processedChunks.length) {
+      return;
+    }
+
+    stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
+    }
+
+    setError("");
+    setPendingCheckpoint(null);
+    setCheckpointRecapText("");
+    setQuizFeedback(null);
+    setCompletionMessage("");
+    setAnsweredQuizIds([]);
+    setCorrectQuizCount(0);
+    setCompletedChunks(0);
+    setCurrentChunk(0);
+    setCurrentStage(null);
+    setPlayerState("READY");
+
+    await playChunkSegment(0, "narration");
   }
 
   async function handleRecapAndQuiz() {
@@ -621,6 +687,10 @@ export default function Home() {
     } catch (playbackError) {
       console.error(playbackError);
     }
+
+    if (isFinalCheckpoint) {
+      handleFinishArticle();
+    }
   }
 
   function handlePause() {
@@ -686,16 +756,21 @@ export default function Home() {
       setQuizFeedback(null);
     }
 
-    const nextMessages: ChatMessage[] = [
+    const apiMessages: ChatMessage[] = [
       ...chatMessages,
-      { role: "user", content: message },
+      { role: "user" as const, content: message },
+    ].slice(-10);
+
+    const nextMessages: ChatMessage[] = [
+      ...apiMessages,
+      { role: "assistant" as const, content: "Thinking..." },
     ];
     setChatMessages(nextMessages);
 
     startChatTransition(async () => {
       try {
         const response = await postJson<{ reply: string }>("/api/chat", {
-          messages: nextMessages,
+          messages: apiMessages,
           articleText: article.markdown,
           title: article.title,
           summaries: processedChunks.map((chunk) => chunk.summary),
@@ -706,7 +781,12 @@ export default function Home() {
           content: response.reply,
         };
 
-        setChatMessages((previous) => [...previous, assistantMessage]);
+        setChatMessages((previous) => {
+          if (previous.length && previous[previous.length - 1]?.role === "assistant") {
+            return [...previous.slice(0, -1), assistantMessage];
+          }
+          return [...previous, assistantMessage];
+        });
         setPlayerState("CHATTING");
 
         await speak(sanitizeForSpeech(response.reply));
@@ -719,7 +799,18 @@ export default function Home() {
           requestError instanceof Error ? requestError.message : "Chat failed.";
         console.error(requestError);
         setError(formatError(message));
-        setPlayerState("ERROR");
+        setChatMessages((previous) => {
+          const fallback: ChatMessage = {
+            role: "assistant",
+            content:
+              "I couldn't answer right now. Please try again in a few seconds.",
+          };
+          if (previous.length && previous[previous.length - 1]?.role === "assistant") {
+            return [...previous.slice(0, -1), fallback];
+          }
+          return [...previous, fallback];
+        });
+        setPlayerState("READY");
       }
     });
   }
@@ -736,6 +827,7 @@ export default function Home() {
     setCurrentStage(null);
     setPendingCheckpoint(null);
     setCheckpointRecapText("");
+    setCompletionMessage("");
     setQuizFeedback(null);
     setCorrectQuizCount(0);
     setAnsweredQuizIds([]);
@@ -853,11 +945,14 @@ export default function Home() {
               onKeepListening={handleKeepListening}
               onRecapQuiz={handleRecapAndQuiz}
               onSelectQuizAnswer={handleQuizAnswer}
+              onFinishArticle={handleFinishArticle}
+              onReplay={handleReplayArticle}
               progressPercent={progressPercent}
               insightScore={insightScore}
               completedChunks={completedChunks}
               totalChunks={processedChunks.length}
               currentStage={currentStage}
+              isFinalCheckpoint={isFinalCheckpoint}
               articleTitle={article?.title ?? ""}
               finalSummary={finalSummary}
               displayText={currentDisplayText}

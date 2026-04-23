@@ -18,7 +18,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const conversationHistory = messages
+    const recentMessages = messages.slice(-8);
+    const conversationHistory = recentMessages
       .map((message) =>
         `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`
       )
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
       title ?? "Untitled"
     }\n\nARTICLE SUMMARY:\n${(summaries ?? []).join(
       "\n"
-    )}\n\nARTICLE EXCERPT:\n${articleText.slice(0, 12000)}\n\nCONVERSATION:\n${conversationHistory}`;
+    )}\n\nARTICLE EXCERPT:\n${articleText.slice(0, 8000)}\n\nCONVERSATION:\n${conversationHistory}`;
 
     const reply = await callLLM({
       system: CHAT_SYSTEM_PROMPT,

@@ -12,11 +12,21 @@ type PlayerBarProps = {
   onKeepListening: () => void;
   onRecapQuiz: () => void;
   onSelectQuizAnswer: (option: string) => void;
+  onFinishArticle: () => void;
+  onReplay: () => void;
   progressPercent: number;
   insightScore: number;
   completedChunks: number;
   totalChunks: number;
-  currentStage: "narration" | "summary" | "checkpoint" | "quiz" | "feedback" | null;
+  currentStage:
+    | "narration"
+    | "summary"
+    | "checkpoint"
+    | "quiz"
+    | "feedback"
+    | "complete"
+    | null;
+  isFinalCheckpoint: boolean;
   articleTitle: string;
   finalSummary: string;
   displayText: string;
@@ -50,6 +60,11 @@ const stageCopy = {
     label: "IQ Feedback",
     dot: "bg-emerald-300",
     helper: "Learning locked",
+  },
+  complete: {
+    label: "Complete",
+    dot: "bg-cyan-200",
+    helper: "Session finished",
   },
 } as const;
 
@@ -90,11 +105,14 @@ export function PlayerBar({
   onKeepListening,
   onRecapQuiz,
   onSelectQuizAnswer,
+  onFinishArticle,
+  onReplay,
   progressPercent,
   insightScore,
   completedChunks,
   totalChunks,
   currentStage,
+  isFinalCheckpoint,
   articleTitle,
   finalSummary,
   displayText,
@@ -111,6 +129,7 @@ export function PlayerBar({
   const isCheckpoint = playerState === "CHECKPOINT";
   const isQuiz = playerState === "QUIZZING";
   const isFeedback = playerState === "FEEDBACK";
+  const isComplete = currentStage === "complete";
 
   return (
     <section className="app-glass relative w-full min-w-0 overflow-hidden rounded-[1.7rem] p-3 text-white sm:rounded-[2.35rem] sm:p-6">
@@ -179,16 +198,29 @@ export function PlayerBar({
 
       {isCheckpoint ? (
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={onKeepListening}
-            className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
-          >
-            Keep listening
-            <span className="mt-1 block text-sm font-semibold text-slate-300">
-              Continue to the next paragraph.
-            </span>
-          </button>
+          {isFinalCheckpoint ? (
+            <button
+              type="button"
+              onClick={onFinishArticle}
+              className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
+            >
+              Finish article
+              <span className="mt-1 block text-sm font-semibold text-slate-300">
+                Wrap up and see your completion message.
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onKeepListening}
+              className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
+            >
+              Keep listening
+              <span className="mt-1 block text-sm font-semibold text-slate-300">
+                Continue to the next paragraph.
+              </span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onRecapQuiz}
@@ -229,9 +261,34 @@ export function PlayerBar({
         </div>
       ) : null}
 
+      {isComplete ? (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onReplay}
+            className="rounded-[1.35rem] bg-[linear-gradient(135deg,#22d3ee,#8b5cf6)] px-5 py-4 text-left text-base font-black text-white shadow-[0_18px_55px_rgba(34,211,238,0.22)] transition hover:scale-[1.01]"
+          >
+            Listen again
+            <span className="mt-1 block text-sm font-semibold text-white/80">
+              Replay from the beginning.
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
+          >
+            New article
+            <span className="mt-1 block text-sm font-semibold text-slate-300">
+              Drop in a new link.
+            </span>
+          </button>
+        </div>
+      ) : null}
+
       <div
         className={`mt-5 items-center justify-center gap-5 sm:mt-6 sm:gap-7 ${
-          isCheckpoint || isQuiz || isFeedback ? "hidden" : "flex"
+          isCheckpoint || isQuiz || isFeedback || isComplete ? "hidden" : "flex"
         }`}
       >
         <button
