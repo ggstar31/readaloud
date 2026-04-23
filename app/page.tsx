@@ -76,6 +76,25 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function waitForChunk(
+  index: number,
+  getChunks: () => ProcessedChunk[],
+  timeoutMs = 12000
+) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const chunk = getChunks()[index];
+    if (chunk) {
+      return chunk;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+  }
+
+  throw new Error("The next section is still preparing. Please try again in a moment.");
+}
+
 function trackListenerEvent(payload: ListenerEvent) {
   void fetch("/api/track-listener", {
     method: "POST",
@@ -112,6 +131,7 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [article, setArticle] = useState<Article | null>(null);
   const [processedChunks, setProcessedChunks] = useState<ProcessedChunk[]>([]);
+  const [totalChunkCount, setTotalChunkCount] = useState(0);
   const [currentChunk, setCurrentChunk] = useState(0);
   const [completedChunks, setCompletedChunks] = useState(0);
   const [playerState, setPlayerState] = useState<PlayerState>("IDLE");
@@ -129,6 +149,8 @@ export default function Home() {
   const [isPreparing, startPreparingTransition] = useTransition();
   const [isChatting, startChatTransition] = useTransition();
   const playbackTimeoutRef = useRef<number | null>(null);
+  const processedChunksRef = useRef<ProcessedChunk[]>([]);
+  const prepareSessionRef = useRef(0);
   const trackedProgressRef = useRef("");
   const playChunkSegmentRef = useRef<
     ((index: number, type: PlaybackSegmentType) => Promise<void>) | null
@@ -136,8 +158,14 @@ export default function Home() {
 
   const { speak, stop } = useBrowserSpeech();
 
+  useEffect(() => {
+    processedChunksRef.current = processedChunks;
+  }, [processedChunks]);
+
   const progressPercent = useMemo(() => {
-    if (!processedChunks.length) {
+    const total = totalChunkCount || processedChunks.length;
+
+    if (!total) {
       return 0;
     }
 
@@ -152,9 +180,9 @@ export default function Home() {
 
     return Math.min(
       100,
-      ((completedChunks + stageFraction) / processedChunks.length) * 100
+      ((completedChunks + stageFraction) / total) * 100
     );
-  }, [completedChunks, currentStage, processedChunks.length]);
+  }, [completedChunks, currentStage, processedChunks.length, totalChunkCount]);
 
   const insightScore = useMemo(() => {
     return Math.min(99, completedChunks + correctQuizCount * 3);
@@ -169,7 +197,8 @@ export default function Home() {
   );
 
   const isAtArticleEnd = Boolean(
-    processedChunks.length && completedChunks >= processedChunks.length
+    (totalChunkCount || processedChunks.length) &&
+      completedChunks >= (totalChunkCount || processedChunks.length)
   );
 
   const currentDisplayText = useMemo(() => {
@@ -318,7 +347,10 @@ export default function Home() {
 
   const playChunkSegment = useCallback(
     async (index: number, type: PlaybackSegmentType) => {
-      const chunk = processedChunks[index];
+      const chunk =
+        processedChunksRef.current[index] ??
+        (await waitForChunk(index, () => processedChunksRef.current));
+      const totalChunks = totalChunkCount || processedChunksRef.current.length;
 
       if (!chunk) {
         return;
@@ -369,7 +401,7 @@ export default function Home() {
           setCompletedChunks((previous) => Math.max(previous, index + 1));
           setCurrentStage(null);
 
-          const isLastChunk = index >= processedChunks.length - 1;
+          const isLastChunk = index >= totalChunks - 1;
           if (isLastChunk) {
             const startIndex = Math.max(0, index - 1);
             setPendingCheckpoint({ startIndex, endIndex: index });
@@ -412,7 +444,7 @@ export default function Home() {
       }
 
     },
-    [processedChunks, speak]
+    [speak, totalChunkCount]
   );
 
   useEffect(() => {
@@ -429,6 +461,7 @@ export default function Home() {
     stop();
     setArticle(null);
     setProcessedChunks([]);
+    setTotalChunkCount(0);
     setCurrentChunk(0);
     setCompletedChunks(0);
     setCurrentStage(null);
@@ -442,47 +475,52 @@ export default function Home() {
     setChatMessages([]);
     setPlayerState("PREPARING");
     trackedProgressRef.current = "";
+    prepareSessionRef.current += 1;
+    const prepareSessionId = prepareSessionRef.current;
 
     startPreparingTransition(async () => {
       try {
         const scraped = await postJson<Article>("/api/scrape", {
           url: url.trim(),
         });
+        if (prepareSessionRef.current !== prepareSessionId) {
+          return;
+        }
         setArticle(scraped);
 
         const chunkResponse = await postJson<{ chunks: string[] }>("/api/chunk", {
           markdown: scraped.markdown,
           title: scraped.title,
         });
-
-        const processed = await mapWithConcurrency(
-          chunkResponse.chunks,
-          2,
-          async (chunk) => {
-            try {
-              return await postJson<ProcessedChunk>("/api/process-chunk", { chunk });
-            } catch (processError) {
-              console.warn("Chunk API failed, using client fallback.", processError);
-              return createFallbackProcessedChunk(chunk);
-            }
-          }
-        );
-        setProcessedChunks(processed);
-
-        const summaries = processed.map((item) => item.summary);
-        try {
-          const summaryResponse = await postJson<{ summary: string }>(
-            "/api/final-summary",
-            {
-              title: scraped.title,
-              summaries,
-            }
-          );
-          setFinalSummary(summaryResponse.summary);
-        } catch (summaryError) {
-          console.warn("Final summary API failed, using client fallback.", summaryError);
-          setFinalSummary(createFallbackFinalSummary(scraped.title, summaries));
+        if (prepareSessionRef.current !== prepareSessionId) {
+          return;
         }
+
+        const rawChunks = chunkResponse.chunks;
+        setTotalChunkCount(rawChunks.length);
+
+        const processChunk = async (chunk: string) => {
+          try {
+            return await postJson<ProcessedChunk>("/api/process-chunk", { chunk });
+          } catch (processError) {
+            console.warn("Chunk API failed, using client fallback.", processError);
+            return createFallbackProcessedChunk(chunk);
+          }
+        };
+
+        const initialCount = Math.max(1, Math.min(2, rawChunks.length));
+        const initialProcessed = await mapWithConcurrency(
+          rawChunks.slice(0, initialCount),
+          2,
+          processChunk
+        );
+
+        if (prepareSessionRef.current !== prepareSessionId) {
+          return;
+        }
+
+        const allProcessed = [...initialProcessed];
+        setProcessedChunks(initialProcessed);
         setChatMessages([
           {
             role: "assistant",
@@ -499,6 +537,71 @@ export default function Home() {
           completedSections: 0,
           event: "article_prepared",
         });
+
+        if (rawChunks.length > initialCount) {
+          const buffered = new Map<number, ProcessedChunk>();
+          let nextAppendIndex = initialCount;
+
+          const flushBuffered = () => {
+            if (prepareSessionRef.current !== prepareSessionId) {
+              return;
+            }
+
+            let changed = false;
+
+            while (buffered.has(nextAppendIndex)) {
+              const nextChunk = buffered.get(nextAppendIndex);
+              buffered.delete(nextAppendIndex);
+
+              if (nextChunk) {
+                allProcessed.push(nextChunk);
+                nextAppendIndex += 1;
+                changed = true;
+              }
+            }
+
+            if (changed) {
+              setProcessedChunks([...allProcessed]);
+            }
+          };
+
+          await mapWithConcurrency(
+            rawChunks.slice(initialCount).map((chunk, offset) => ({
+              chunk,
+              index: initialCount + offset,
+            })),
+            2,
+            async ({ chunk, index }) => {
+              const processedChunk = await processChunk(chunk);
+              buffered.set(index, processedChunk);
+              flushBuffered();
+              return processedChunk;
+            }
+          );
+        }
+
+        if (prepareSessionRef.current !== prepareSessionId) {
+          return;
+        }
+
+        const summaries = allProcessed.map((item) => item.summary);
+        try {
+          const summaryResponse = await postJson<{ summary: string }>(
+            "/api/final-summary",
+            {
+              title: scraped.title,
+              summaries,
+            }
+          );
+          if (prepareSessionRef.current === prepareSessionId) {
+            setFinalSummary(summaryResponse.summary);
+          }
+        } catch (summaryError) {
+          console.warn("Final summary API failed, using client fallback.", summaryError);
+          if (prepareSessionRef.current === prepareSessionId) {
+            setFinalSummary(createFallbackFinalSummary(scraped.title, summaries));
+          }
+        }
       } catch (requestError) {
         const message =
           requestError instanceof Error
@@ -527,6 +630,7 @@ export default function Home() {
   }
 
   function handleRestoreSession(session: ListeningSession) {
+    prepareSessionRef.current += 1;
     stop();
     if (playbackTimeoutRef.current !== null) {
       window.clearTimeout(playbackTimeoutRef.current);
@@ -535,6 +639,7 @@ export default function Home() {
     setUrl(session.article.url);
     setArticle(session.article);
     setProcessedChunks(session.processedChunks);
+    setTotalChunkCount(session.processedChunks.length);
     setCurrentChunk(session.currentChunk);
     setCompletedChunks(session.completedChunks);
     setCurrentStage(null);
@@ -806,12 +911,14 @@ export default function Home() {
   }
 
   function handleReset() {
+    prepareSessionRef.current += 1;
     stop();
     if (playbackTimeoutRef.current !== null) {
       window.clearTimeout(playbackTimeoutRef.current);
     }
     setArticle(null);
     setProcessedChunks([]);
+    setTotalChunkCount(0);
     setCurrentChunk(0);
     setCompletedChunks(0);
     setCurrentStage(null);
@@ -938,7 +1045,7 @@ export default function Home() {
               progressPercent={progressPercent}
               insightScore={insightScore}
               completedChunks={completedChunks}
-              totalChunks={processedChunks.length}
+      totalChunks={totalChunkCount || processedChunks.length}
               currentStage={currentStage}
               articleTitle={article?.title ?? ""}
               finalSummary={finalSummary}
