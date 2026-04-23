@@ -457,7 +457,7 @@ export default function Home() {
 
         const processed = await mapWithConcurrency(
           chunkResponse.chunks,
-          1,
+          2,
           async (chunk) => {
             try {
               return await postJson<ProcessedChunk>("/api/process-chunk", { chunk });

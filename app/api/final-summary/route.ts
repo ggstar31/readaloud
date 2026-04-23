@@ -25,18 +25,21 @@ export async function POST(request: Request) {
     let result: FinalSummaryResponse;
 
     try {
-      result = await withJsonRetry<FinalSummaryResponse>((extraInstruction) =>
-        callLLM({
-          system: `${FINAL_SUMMARY_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
-          user: `ARTICLE TITLE: ${
-            title ?? "Untitled"
-          }\n\nSECTION SUMMARIES:\n${summaries.join("\n")}`,
-          maxTokens: 300,
-          temperature: 0.3,
-          jsonMode: true,
-          timeoutMs: 6500,
-        })
-      , 0);
+      result = await withJsonRetry<FinalSummaryResponse>(
+        (extraInstruction) =>
+          callLLM({
+            system: `${FINAL_SUMMARY_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
+            user: `ARTICLE TITLE: ${
+              title ?? "Untitled"
+            }\n\nSECTION SUMMARIES:\n${summaries.join("\n")}`,
+            allowFallback: false,
+            maxTokens: 300,
+            temperature: 0.3,
+            jsonMode: true,
+            timeoutMs: 6500,
+          }),
+        0
+      );
     } catch (error) {
       console.error("LLM final summary failed, using fallback.", error);
       result = {

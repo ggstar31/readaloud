@@ -4,6 +4,7 @@ export type LLMRequest = {
   system: string;
   user: string;
   provider?: LLMProvider;
+  allowFallback?: boolean;
   maxTokens?: number;
   temperature?: number;
   jsonMode?: boolean;
@@ -69,20 +70,22 @@ export async function callLLM({
   system,
   user,
   provider,
+  allowFallback = true,
   maxTokens = 1200,
   temperature = 0.3,
   jsonMode = false,
   timeoutMs = 9000,
 }: LLMRequest): Promise<string> {
   const candidates = getProviderCandidates(provider);
+  const activeCandidates = allowFallback ? candidates : candidates.slice(0, 1);
 
-  if (!candidates.length) {
+  if (!activeCandidates.length) {
     noProviderConfigured();
   }
 
   let lastError: ProviderError | null = null;
 
-  for (const activeProvider of candidates) {
+  for (const activeProvider of activeCandidates) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 

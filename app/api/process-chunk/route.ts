@@ -32,6 +32,7 @@ export async function POST(request: Request) {
           callLLM({
             system: `${PROCESS_SYSTEM_PROMPT}${extraInstruction ?? ""}`,
             user: chunk,
+            allowFallback: false,
             maxTokens: 950,
             temperature: 0.45,
             jsonMode: true,
