@@ -17,7 +17,7 @@ import {
   saveListenerName,
   saveListeningSession,
 } from "@/lib/listening-history";
-import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { useBrowserSpeech } from "@/hooks/useBrowserSpeech";
 import type {
   Article,
   ChatMessage,
@@ -53,72 +53,6 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   }
 
   return (await response.json()) as T;
-}
-
-async function postAudio(url: string, body: unknown): Promise<Blob> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    let message = "Audio generation failed.";
-    try {
-      const data = (await response.json()) as { error?: string };
-      message = data.error ?? message;
-    } catch {
-      // Fall back to generic message when the body is not JSON.
-    }
-    throw new Error(message);
-  }
-
-  return response.blob();
-}
-
-function cacheKey(index: number, type: SegmentType) {
-  return `chunk_${index}_${type}`;
-}
-
-function splitSpeechText(text: string, maxLength = 1800) {
-  const clean = text.replace(/\s+/g, " ").trim();
-
-  if (clean.length <= maxLength) {
-    return [clean];
-  }
-
-  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
-  const parts: string[] = [];
-  let current = "";
-
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim();
-    const candidate = current ? `${current} ${trimmed}` : trimmed;
-
-    if (candidate.length > maxLength && current) {
-      parts.push(current);
-      current = trimmed;
-      continue;
-    }
-
-    if (trimmed.length > maxLength) {
-      for (let start = 0; start < trimmed.length; start += maxLength) {
-        parts.push(trimmed.slice(start, start + maxLength));
-      }
-      current = "";
-      continue;
-    }
-
-    current = candidate;
-  }
-
-  if (current) {
-    parts.push(current);
-  }
-
-  return parts.filter(Boolean);
 }
 
 function formatError(message: string) {
@@ -163,7 +97,7 @@ export default function Home() {
     ((index: number, type: PlaybackSegmentType) => Promise<void>) | null
   >(null);
 
-  const { ensureAudio, playUrls, stop } = useAudioPlayer();
+  const { speak, stop } = useBrowserSpeech();
 
   const progressPercent = useMemo(() => {
     if (!processedChunks.length) {
@@ -300,72 +234,6 @@ export default function Home() {
     };
   }, []);
 
-  const fetchSegmentAudio = useCallback(
-    async (index: number, type: SegmentType, text: string, instructions: string) => {
-      const parts = splitSpeechText(text);
-
-      return Promise.all(
-        parts.map((part, partIndex) =>
-          ensureAudio(`${cacheKey(index, type)}_${partIndex}`, async () => {
-            const blob = await postAudio("/api/tts", {
-              text: part,
-              instructions,
-            });
-            return blob;
-          })
-        )
-      );
-    },
-    [ensureAudio]
-  );
-
-  const fetchCustomAudio = useCallback(
-    async (key: string, text: string, instructions: string) =>
-      Promise.all(
-        splitSpeechText(text).map((part, partIndex) =>
-          ensureAudio(`${key}_${partIndex}`, async () =>
-            postAudio("/api/tts", {
-              text: part,
-              instructions,
-            })
-          )
-        )
-      ),
-    [ensureAudio]
-  );
-
-  const prefetchChunkAudio = useCallback(
-    async (index: number) => {
-      const chunk = processedChunks[index];
-
-      if (!chunk) {
-        return;
-      }
-
-      await Promise.all([
-        fetchSegmentAudio(
-          index,
-          "narration",
-          chunk.narration,
-          "Narrate like a modern podcast host. Clear, rich, and immersive."
-        ),
-        fetchSegmentAudio(
-          index,
-          "summary",
-          chunk.summary,
-          "Speak like a sharp recap after a brilliant section."
-        ),
-        fetchSegmentAudio(
-          index,
-          "question",
-          `${chunk.question} ${(chunk.options ?? []).join(" ")}`,
-          "Ask this like an intelligent game prompt with a little suspense."
-        ),
-      ]);
-    },
-    [fetchSegmentAudio, processedChunks]
-  );
-
   const playChunkSegment = useCallback(
     async (index: number, type: PlaybackSegmentType) => {
       const chunk = processedChunks[index];
@@ -407,46 +275,32 @@ export default function Home() {
       setPlayerState(payload.state);
 
       try {
-        const audioUrls = await fetchSegmentAudio(
-          index,
-          type,
-          payload.text,
-          payload.instructions
-        );
-
-        await playUrls(audioUrls, () => {
-          if (type === "narration") {
-            setCompletedChunks((previous) => Math.max(previous, index + 1));
-            setCurrentStage(null);
-
-            const shouldCheckpoint =
-              (index + 1) % 2 === 0 || index >= processedChunks.length - 1;
-
-            if (shouldCheckpoint) {
-              setPendingCheckpoint({
-                startIndex: Math.max(0, index - 1),
-                endIndex: index,
-              });
-              setCurrentStage("checkpoint");
-              setPlayerState("CHECKPOINT");
-              return;
-            }
-
-            playbackTimeoutRef.current = window.setTimeout(() => {
-              void playChunkSegmentRef.current?.(index + 1, "narration");
-            }, 650);
+        await speak(payload.text, () => {
+          if (type !== "narration") {
+            setCurrentStage("quiz");
+            setPlayerState("QUIZZING");
             return;
           }
 
-          if (type === "summary") {
-            playbackTimeoutRef.current = window.setTimeout(() => {
-              void playChunkSegmentRef.current?.(index, "question");
-            }, 250);
+          setCompletedChunks((previous) => Math.max(previous, index + 1));
+          setCurrentStage(null);
+
+          const shouldCheckpoint =
+            (index + 1) % 2 === 0 || index >= processedChunks.length - 1;
+
+          if (shouldCheckpoint) {
+            setPendingCheckpoint({
+              startIndex: Math.max(0, index - 1),
+              endIndex: index,
+            });
+            setCurrentStage("checkpoint");
+            setPlayerState("CHECKPOINT");
             return;
           }
 
-          setCurrentStage("quiz");
-          setPlayerState("QUIZZING");
+          playbackTimeoutRef.current = window.setTimeout(() => {
+            void playChunkSegmentRef.current?.(index + 1, "narration");
+          }, 650);
         });
       } catch (playbackError) {
         const message =
@@ -455,31 +309,20 @@ export default function Home() {
             : "Audio playback failed.";
         console.error(playbackError);
         setError(
-          message.includes("OPENAI_API_KEY") || message.includes("401")
-            ? "The narration voice is not connected. Check OPENAI_API_KEY in Vercel, redeploy, and try again."
-            : `The narration audio could not play. Detail: ${message.slice(0, 180)}`
+          `Free browser narration could not play. Detail: ${message.slice(0, 180)}`
         );
         setCurrentStage(null);
         setPlayerState("ERROR");
         return;
       }
 
-      if (type === "narration") {
-        void prefetchChunkAudio(index + 1);
-      }
     },
-    [fetchSegmentAudio, playUrls, prefetchChunkAudio, processedChunks]
+    [processedChunks, speak]
   );
 
   useEffect(() => {
     playChunkSegmentRef.current = playChunkSegment;
   }, [playChunkSegment]);
-
-  useEffect(() => {
-    if (playerState === "READY" && currentChunk === 0 && processedChunks.length) {
-      void prefetchChunkAudio(0);
-    }
-  }, [currentChunk, playerState, prefetchChunkAudio, processedChunks.length]);
 
   async function handlePrepareArticle() {
     if (!url.trim()) {
@@ -648,24 +491,12 @@ export default function Home() {
       setCurrentStage("summary");
       setPlayerState("SUMMARIZING");
 
-      const recapUrls = await fetchCustomAudio(
-        `checkpoint_${checkpoint.endIndex}_recap`,
-        recapText,
-        "Give this as a short, warm recap in a clear feminine narrator voice."
-      );
-
-      await playUrls(recapUrls);
+      await speak(recapText);
 
       setCurrentStage("quiz");
       setPlayerState("QUIZZING");
 
-      const quizUrls = await fetchCustomAudio(
-        `checkpoint_${checkpoint.endIndex}_quiz`,
-        quizText,
-        "Ask the quiz in a friendly teacher voice. Keep it crisp and clear."
-      );
-
-      await playUrls(quizUrls);
+      await speak(quizText);
     } catch (playbackError) {
       const message =
         playbackError instanceof Error
@@ -673,9 +504,7 @@ export default function Home() {
           : "Audio playback failed.";
       console.error(playbackError);
       setError(
-        message.includes("OPENAI_API_KEY") || message.includes("401")
-          ? "The narration voice is not connected. Check OPENAI_API_KEY in Vercel, redeploy, and try again."
-          : `The recap audio could not play. Detail: ${message.slice(0, 180)}`
+        `Free browser recap could not play. Detail: ${message.slice(0, 180)}`
       );
       setPlayerState("ERROR");
       setCurrentStage(null);
@@ -707,12 +536,7 @@ export default function Home() {
     }
 
     try {
-      const feedbackUrls = await fetchCustomAudio(
-        `checkpoint_${pendingCheckpoint.endIndex}_feedback_${option}`,
-        feedbackText,
-        "Give this feedback warmly and briefly in a clear feminine voice."
-      );
-      await playUrls(feedbackUrls);
+      await speak(feedbackText);
     } catch (playbackError) {
       console.error(playbackError);
     }
@@ -800,13 +624,7 @@ export default function Home() {
         setChatMessages((previous) => [...previous, assistantMessage]);
         setPlayerState("CHATTING");
 
-        const audioUrls = await fetchCustomAudio(
-          `chat_${Date.now()}`,
-          response.reply,
-          "Speak like an articulate reading companion answering a curious listener."
-        );
-
-        await playUrls(audioUrls);
+        await speak(response.reply);
 
         if (processedChunks.length) {
           setPlayerState("READY");
