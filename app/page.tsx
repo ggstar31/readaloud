@@ -508,19 +508,15 @@ export default function Home() {
           }
         };
 
-        const initialCount = Math.max(1, Math.min(2, rawChunks.length));
-        const initialProcessed = await mapWithConcurrency(
-          rawChunks.slice(0, initialCount),
-          2,
-          processChunk
+        const seededProcessed = rawChunks.map((chunk) => createFallbackProcessedChunk(chunk));
+        const allProcessed = [...seededProcessed];
+        setProcessedChunks(seededProcessed);
+        setFinalSummary(
+          createFallbackFinalSummary(
+            scraped.title,
+            seededProcessed.map((item) => item.summary)
+          )
         );
-
-        if (prepareSessionRef.current !== prepareSessionId) {
-          return;
-        }
-
-        const allProcessed = [...initialProcessed];
-        setProcessedChunks(initialProcessed);
         setChatMessages([
           {
             role: "assistant",
@@ -538,70 +534,44 @@ export default function Home() {
           event: "article_prepared",
         });
 
-        if (rawChunks.length > initialCount) {
-          const buffered = new Map<number, ProcessedChunk>();
-          let nextAppendIndex = initialCount;
+        void mapWithConcurrency(
+          rawChunks.map((chunk, index) => ({ chunk, index })),
+          2,
+          async ({ chunk, index }) => {
+            const processedChunk = await processChunk(chunk);
 
-          const flushBuffered = () => {
             if (prepareSessionRef.current !== prepareSessionId) {
-              return;
-            }
-
-            let changed = false;
-
-            while (buffered.has(nextAppendIndex)) {
-              const nextChunk = buffered.get(nextAppendIndex);
-              buffered.delete(nextAppendIndex);
-
-              if (nextChunk) {
-                allProcessed.push(nextChunk);
-                nextAppendIndex += 1;
-                changed = true;
-              }
-            }
-
-            if (changed) {
-              setProcessedChunks([...allProcessed]);
-            }
-          };
-
-          await mapWithConcurrency(
-            rawChunks.slice(initialCount).map((chunk, offset) => ({
-              chunk,
-              index: initialCount + offset,
-            })),
-            2,
-            async ({ chunk, index }) => {
-              const processedChunk = await processChunk(chunk);
-              buffered.set(index, processedChunk);
-              flushBuffered();
               return processedChunk;
             }
-          );
-        }
 
-        if (prepareSessionRef.current !== prepareSessionId) {
-          return;
-        }
+            allProcessed[index] = processedChunk;
+            setProcessedChunks([...allProcessed]);
+            return processedChunk;
+          }
+        ).then(async () => {
+          if (prepareSessionRef.current !== prepareSessionId) {
+            return;
+          }
 
-        const summaries = allProcessed.map((item) => item.summary);
-        try {
-          const summaryResponse = await postJson<{ summary: string }>(
-            "/api/final-summary",
-            {
-              title: scraped.title,
-              summaries,
+          const summaries = allProcessed.map((item) => item.summary);
+          try {
+            const summaryResponse = await postJson<{ summary: string }>(
+              "/api/final-summary",
+              {
+                title: scraped.title,
+                summaries,
+              }
+            );
+            if (prepareSessionRef.current === prepareSessionId) {
+              setFinalSummary(summaryResponse.summary);
             }
-          );
-          if (prepareSessionRef.current === prepareSessionId) {
-            setFinalSummary(summaryResponse.summary);
+          } catch (summaryError) {
+            console.warn("Final summary API failed, using client fallback.", summaryError);
+            if (prepareSessionRef.current === prepareSessionId) {
+              setFinalSummary(createFallbackFinalSummary(scraped.title, summaries));
+            }
           }
-        } catch (summaryError) {
-          console.warn("Final summary API failed, using client fallback.", summaryError);
-          if (prepareSessionRef.current === prepareSessionId) {
-            setFinalSummary(createFallbackFinalSummary(scraped.title, summaries));
-          }
-        }
+        });
       } catch (requestError) {
         const message =
           requestError instanceof Error
