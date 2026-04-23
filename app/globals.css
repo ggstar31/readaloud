@@ -18,10 +18,14 @@
 }
 
 html {
+  max-width: 100%;
+  overflow-x: hidden;
   scroll-behavior: smooth;
 }
 
 body {
+  max-width: 100%;
+  overflow-x: hidden;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-space-grotesk), sans-serif;
@@ -76,7 +80,7 @@ textarea {
 
 .aurora-bg {
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .aurora-bg::before {
@@ -94,6 +98,8 @@ textarea {
 }
 
 .app-glass {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.045));
   box-shadow: 0 28px 120px rgba(0, 0, 0, 0.42);

@@ -747,7 +747,7 @@ export default function Home() {
   }
 
   return (
-    <main className="aurora-bg min-h-screen bg-[linear-gradient(180deg,#140c2d_0%,#0d1328_46%,#070817_100%)] text-slate-100">
+    <main className="aurora-bg min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,#140c2d_0%,#0d1328_46%,#070817_100%)] text-slate-100">
       {hasLoadedProfile && !listenerName ? (
         <section className="fixed inset-0 z-50 grid place-items-center bg-[#070817]/90 px-5 backdrop-blur-2xl">
           <form
@@ -785,42 +785,42 @@ export default function Home() {
         </section>
       ) : null}
 
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-7 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex items-center justify-between rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 backdrop-blur-2xl">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-400 to-cyan-300 text-lg font-black text-slate-950">
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-3 py-4 sm:gap-7 sm:px-6 sm:py-5 lg:px-8">
+        <header className="flex min-w-0 items-center justify-between gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-3 backdrop-blur-2xl sm:px-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-400 to-cyan-300 text-base font-black text-slate-950 sm:h-10 sm:w-10 sm:text-lg">
               {(listenerName || "R").slice(0, 1).toUpperCase()}
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-black tracking-tight text-white">ReadAloud</p>
-              <p className="text-xs font-semibold text-slate-400">
+              <p className="truncate text-xs font-semibold text-slate-400">
                 {listenerName ? `Welcome ${listenerName} ⭐` : "Audio learning OS"}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/history"
-              className="rounded-full border border-white/10 bg-white/8 px-4 py-2 text-sm font-black text-white transition hover:bg-white/14"
+              className="hidden rounded-full border border-white/10 bg-white/8 px-4 py-2 text-sm font-black text-white transition hover:bg-white/14 sm:inline-flex"
             >
               History
             </Link>
-            <div className="rounded-full bg-white/8 px-4 py-2 text-sm font-black text-white">
+            <div className="rounded-full bg-white/8 px-3 py-2 text-sm font-black text-white sm:px-4">
               {insightScore} IQ
             </div>
           </div>
         </header>
 
-        <section className="grid items-start gap-5 lg:gap-7 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="space-y-5 xl:sticky xl:top-5">
-            <div className="pt-2 sm:pt-8">
-              <p className="text-[11px] font-black uppercase tracking-[0.4em] text-violet-300">
+        <section className="grid min-w-0 items-start gap-5 lg:gap-7 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="min-w-0 space-y-4 sm:space-y-5 xl:sticky xl:top-5">
+            <div className="pt-1 sm:pt-8">
+              <p className="text-[10px] font-black uppercase tracking-[0.34em] text-violet-300 sm:text-[11px] sm:tracking-[0.4em]">
                 Now an experience
               </p>
-              <h1 className="mt-4 max-w-2xl text-5xl font-black leading-[0.92] tracking-[-0.07em] text-white sm:text-7xl">
+              <h1 className="mt-3 max-w-2xl text-[3rem] font-black leading-[0.9] tracking-[-0.07em] text-white min-[390px]:text-5xl sm:mt-4 sm:text-7xl">
                 Read articles like they are alive.
               </h1>
-              <p className="mt-5 max-w-xl text-base font-semibold leading-8 text-slate-300 sm:text-lg">
+              <p className="mt-4 max-w-xl text-sm font-semibold leading-7 text-slate-300 sm:mt-5 sm:text-lg sm:leading-8">
                 Drop a link, press play, and get sharp narration, recaps, and
                 mind-sharpening checkpoints hands free.
               </p>
@@ -840,7 +840,7 @@ export default function Home() {
             ) : null}
           </div>
 
-          <div className="mx-auto w-full max-w-[38rem] xl:max-w-none">
+          <div className="mx-auto w-full min-w-0 max-w-full sm:max-w-[38rem] xl:max-w-none">
             <PlayerBar
               playerState={playerState}
               canStart={canStart}
@@ -868,7 +868,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="grid min-w-0 gap-5 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="app-glass rounded-[2rem] p-5 sm:p-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>

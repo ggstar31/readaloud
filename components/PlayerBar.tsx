@@ -113,30 +113,30 @@ export function PlayerBar({
   const isFeedback = playerState === "FEEDBACK";
 
   return (
-    <section className="app-glass relative overflow-hidden rounded-[2rem] p-4 text-white sm:rounded-[2.35rem] sm:p-6">
+    <section className="app-glass relative w-full min-w-0 overflow-hidden rounded-[1.7rem] p-3 text-white sm:rounded-[2.35rem] sm:p-6">
       <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/60 to-transparent" />
 
-      <div className="flex items-center justify-between gap-3 rounded-full border border-white/10 bg-white/[0.06] px-4 py-3">
+      <div className="flex min-w-0 items-center justify-between gap-2 rounded-[1.4rem] border border-white/10 bg-white/[0.06] px-3 py-3 sm:gap-3 sm:rounded-full sm:px-4">
         <button
           type="button"
           onClick={onReset}
-          className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-2xl text-white/80 transition hover:bg-white/16"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-xl text-white/80 transition hover:bg-white/16 sm:h-11 sm:w-11 sm:text-2xl"
           aria-label="Reset session"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-black uppercase tracking-[0.35em] text-violet-300">
+          <p className="truncate text-[10px] font-black uppercase tracking-[0.28em] text-violet-300 sm:text-[11px] sm:tracking-[0.35em]">
             {statusFor(playerState)}
           </p>
-          <h2 className="truncate text-lg font-black tracking-tight text-white">
+          <h2 className="truncate text-base font-black tracking-tight text-white sm:text-lg">
             {articleTitle || "Drop a link to begin"}
           </h2>
         </div>
         <div className="hidden rounded-full border border-white/10 bg-white/8 px-3 py-2 text-xs font-black uppercase tracking-[0.16em] text-white sm:block">
           {listenerName || "Reader"}
         </div>
-        <div className="text-right text-lg font-black text-white">
+        <div className="shrink-0 text-right text-base font-black text-white sm:text-lg">
           {insightScore}
           <span className="ml-1 text-sm text-white/55">IQ</span>
         </div>
@@ -148,27 +148,27 @@ export function PlayerBar({
           style={{ width: `${Math.max(3, progressPercent)}%` }}
         />
       </div>
-      <div className="mt-2 flex justify-end text-sm font-bold tracking-[0.16em] text-white/55">
+      <div className="mt-2 flex justify-end text-xs font-bold tracking-[0.13em] text-white/55 sm:text-sm sm:tracking-[0.16em]">
         Paragraph {Math.min(completedChunks + 1, totalChunks || 1)} / {totalChunks || 1}
       </div>
 
-      <div className="relative mx-auto mt-6 grid h-56 max-w-sm place-items-center sm:mt-9 sm:h-80">
-        <div className="orb-ring absolute h-56 w-56 rounded-full border border-cyan-300/18 sm:h-72 sm:w-72" />
-        <div className="orb-ring absolute h-44 w-44 rounded-full border border-violet-400/22 [animation-delay:500ms] sm:h-56 sm:w-56" />
-        <div className="absolute h-36 w-36 rounded-full bg-cyan-300/10 blur-3xl sm:h-44 sm:w-44" />
-        <div className="orb-core relative h-36 w-36 rounded-full bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.55),transparent_22%),linear-gradient(135deg,#a78bfa_0%,#6d5dfc_42%,#22d3ee_100%)] shadow-[0_30px_90px_rgba(34,211,238,0.34)] sm:h-52 sm:w-52">
+      <div className="relative mx-auto mt-5 grid h-48 w-full max-w-xs place-items-center sm:mt-9 sm:h-80 sm:max-w-sm">
+        <div className="orb-ring absolute h-44 w-44 rounded-full border border-cyan-300/18 sm:h-72 sm:w-72" />
+        <div className="orb-ring absolute h-36 w-36 rounded-full border border-violet-400/22 [animation-delay:500ms] sm:h-56 sm:w-56" />
+        <div className="absolute h-32 w-32 rounded-full bg-cyan-300/10 blur-3xl sm:h-44 sm:w-44" />
+        <div className="orb-core relative h-32 w-32 rounded-full bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.55),transparent_22%),linear-gradient(135deg,#a78bfa_0%,#6d5dfc_42%,#22d3ee_100%)] shadow-[0_30px_90px_rgba(34,211,238,0.34)] sm:h-52 sm:w-52">
           <div className="absolute left-8 top-7 h-9 w-20 rounded-full bg-white/24 blur-[1px] sm:left-10 sm:top-8 sm:h-12 sm:w-24" />
           <div className="absolute inset-10 rounded-full bg-white/10" />
         </div>
       </div>
 
-      <div className="mx-auto -mt-2 flex w-fit items-center gap-3 rounded-full border border-white/12 bg-white/[0.08] px-6 py-3 text-sm font-black uppercase tracking-[0.32em]">
+      <div className="mx-auto -mt-1 flex w-fit max-w-full items-center gap-2 rounded-full border border-white/12 bg-white/[0.08] px-4 py-2 text-xs font-black uppercase tracking-[0.24em] sm:-mt-2 sm:gap-3 sm:px-6 sm:py-3 sm:text-sm sm:tracking-[0.32em]">
         <span className={`h-3 w-3 rounded-full ${activeStage.dot}`} />
         {activeStage.label}
       </div>
 
-      <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-[#17122b]/78 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:mt-7 sm:rounded-[1.75rem] sm:p-6">
-        <p className="text-[15px] font-bold leading-7 tracking-tight text-white sm:text-[15px] sm:leading-7">
+      <div className="mt-4 rounded-[1.25rem] border border-white/10 bg-[#17122b]/78 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:mt-7 sm:rounded-[1.75rem] sm:p-6">
+        <p className="break-words text-sm font-bold leading-6 tracking-tight text-white sm:text-[15px] sm:leading-7">
           {quizFeedback ||
             displayText ||
             finalSummary ||
@@ -238,7 +238,7 @@ export function PlayerBar({
           type="button"
           onClick={onPrevious}
           disabled={!totalChunks}
-          className="grid h-14 w-14 place-items-center rounded-full border border-white/10 bg-white/10 text-xl text-white shadow-lg transition hover:bg-white/16 disabled:cursor-not-allowed disabled:opacity-45 sm:h-16 sm:w-16 sm:text-2xl"
+          className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/10 text-lg text-white shadow-lg transition hover:bg-white/16 disabled:cursor-not-allowed disabled:opacity-45 sm:h-16 sm:w-16 sm:text-2xl"
           aria-label="Previous paragraph"
         >
           ◀
@@ -247,7 +247,7 @@ export function PlayerBar({
           type="button"
           onClick={isPlaying ? onPause : onStart}
           disabled={!canStart && !canPause}
-          className="grid h-20 w-20 place-items-center rounded-full bg-[linear-gradient(135deg,#a855f7,#22d3ee)] text-3xl font-black text-white shadow-[0_25px_70px_rgba(124,58,237,0.45)] transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-60 sm:h-24 sm:w-24 sm:text-4xl"
+          className="grid h-16 w-16 place-items-center rounded-full bg-[linear-gradient(135deg,#a855f7,#22d3ee)] text-2xl font-black text-white shadow-[0_25px_70px_rgba(124,58,237,0.45)] transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-60 sm:h-24 sm:w-24 sm:text-4xl"
           aria-label={isPlaying ? "Pause" : "Play"}
         >
           {isPlaying ? "Ⅱ" : "▶"}
@@ -256,7 +256,7 @@ export function PlayerBar({
           type="button"
           onClick={onNext}
           disabled={!totalChunks}
-          className="grid h-14 w-14 place-items-center rounded-full border border-white/10 bg-white/10 text-xl text-white shadow-lg transition hover:bg-white/16 disabled:cursor-not-allowed disabled:opacity-50 sm:h-16 sm:w-16 sm:text-2xl"
+          className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/10 text-lg text-white shadow-lg transition hover:bg-white/16 disabled:cursor-not-allowed disabled:opacity-50 sm:h-16 sm:w-16 sm:text-2xl"
           aria-label="Next paragraph"
         >
           ▶

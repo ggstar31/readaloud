@@ -137,17 +137,17 @@ export function ChatDrawer({
         type="button"
         onClick={() => setIsOpen((value) => !value)}
         disabled={!isEnabled}
-        className={`fixed bottom-6 right-5 z-50 items-center gap-3 rounded-full bg-[linear-gradient(135deg,#22d3ee,#8b5cf6)] px-6 py-4 text-lg font-black text-white shadow-[0_22px_65px_rgba(34,211,238,0.38)] transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-45 lg:bottom-10 lg:right-10 ${
+        className={`fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-50 items-center gap-2 rounded-full bg-[linear-gradient(135deg,#22d3ee,#8b5cf6)] px-4 py-3 text-base font-black text-white shadow-[0_22px_65px_rgba(34,211,238,0.38)] transition hover:scale-[1.03] disabled:pointer-events-none disabled:opacity-45 sm:right-5 sm:gap-3 sm:px-6 sm:py-4 sm:text-lg lg:bottom-10 lg:right-10 ${
           isOpen ? "hidden" : "inline-flex"
         }`}
         aria-expanded={isOpen}
       >
-        <span className="text-xl">◉</span>
+        <span className="text-lg sm:text-xl">◉</span>
         Ask
       </button>
 
       <section
-        className={`fixed inset-x-3 bottom-3 z-40 mx-auto max-w-3xl rounded-[2.2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(22,18,38,0.98),rgba(8,10,20,0.99))] p-5 text-white shadow-[0_-26px_100px_rgba(0,0,0,0.55)] transition duration-300 sm:inset-x-6 sm:p-6 ${
+        className={`fixed inset-x-2 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-40 mx-auto max-w-3xl rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(22,18,38,0.98),rgba(8,10,20,0.99))] p-4 text-white shadow-[0_-26px_100px_rgba(0,0,0,0.55)] transition duration-300 sm:inset-x-6 sm:rounded-[2.2rem] sm:p-6 ${
           isOpen
             ? "translate-y-0 opacity-100"
             : "pointer-events-none translate-y-[115%] opacity-0"
@@ -162,26 +162,26 @@ export function ChatDrawer({
         />
 
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.34em] text-violet-300">
+          <div className="min-w-0">
+            <p className="truncate text-[10px] font-black uppercase tracking-[0.28em] text-violet-300 sm:text-[11px] sm:tracking-[0.34em]">
               Conversation
             </p>
-            <h2 className="mt-2 text-2xl font-black tracking-tight">
+            <h2 className="mt-2 text-xl font-black tracking-tight sm:text-2xl">
               Ask about this article
             </h2>
           </div>
           <button
             type="button"
             onClick={() => setIsOpen(false)}
-            className="grid h-12 w-12 place-items-center rounded-full bg-white/12 text-2xl text-white/80 transition hover:bg-white/18"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/12 text-xl text-white/80 transition hover:bg-white/18 sm:h-12 sm:w-12 sm:text-2xl"
             aria-label="Close conversation"
           >
             ×
           </button>
         </div>
 
-        <div className="mt-6 max-h-72 space-y-3 overflow-y-auto pr-1">
-          <div className="max-w-[86%] rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-base font-semibold leading-7 text-slate-100">
+        <div className="mt-5 max-h-72 space-y-3 overflow-y-auto pr-1 sm:mt-6">
+          <div className="max-w-[92%] break-words rounded-[1.2rem] border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold leading-6 text-slate-100 sm:max-w-[86%] sm:rounded-[1.35rem] sm:px-5 sm:py-4 sm:text-base sm:leading-7">
             {latestAssistant}
           </div>
           {messages
@@ -190,21 +190,21 @@ export function ChatDrawer({
             .map((message, index) => (
               <div
                 key={`${message.content}-${index}`}
-                className="ml-auto max-w-[82%] rounded-[1.35rem] bg-violet-100 px-5 py-4 text-base font-semibold leading-7 text-slate-950"
+                className="ml-auto max-w-[90%] break-words rounded-[1.2rem] bg-violet-100 px-4 py-3 text-sm font-semibold leading-6 text-slate-950 sm:max-w-[82%] sm:rounded-[1.35rem] sm:px-5 sm:py-4 sm:text-base sm:leading-7"
               >
                 {message.content}
               </div>
             ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6">
-          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/10 p-2">
+        <form onSubmit={handleSubmit} className="mt-5 sm:mt-6">
+          <div className="flex min-w-0 items-center gap-2 rounded-[1.3rem] border border-white/10 bg-white/10 p-2 sm:gap-3 sm:rounded-full">
             <input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               disabled={!isEnabled || isSending}
               placeholder="Can you explain that simply?"
-              className="min-h-12 flex-1 bg-transparent px-4 text-base font-semibold text-white outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+              className="min-h-12 min-w-0 flex-1 bg-transparent px-3 text-sm font-semibold text-white outline-none placeholder:text-slate-400 disabled:cursor-not-allowed sm:px-4 sm:text-base"
             />
             {recognitionConstructor ? (
               <button
