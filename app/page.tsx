@@ -33,6 +33,19 @@ type PlaybackSegmentType = Exclude<SegmentType, "chat">;
 type Checkpoint = { startIndex: number; endIndex: number } | null;
 type QuizFeedback = { correct: boolean; text: string } | null;
 
+type ListenerEvent = {
+  name: string;
+  articleTitle?: string;
+  articleUrl?: string;
+  iqScore?: number;
+  completedSections?: number;
+  event:
+    | "profile_saved"
+    | "article_prepared"
+    | "session_progress"
+    | "session_completed";
+};
+
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
@@ -54,6 +67,19 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+function trackListenerEvent(payload: ListenerEvent) {
+  void fetch("/api/track-listener", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch((error) => {
+    console.warn("Listener tracking skipped.", error);
+  });
 }
 
 function formatError(message: string) {
@@ -95,6 +121,7 @@ export default function Home() {
   const [isPreparing, startPreparingTransition] = useTransition();
   const [isChatting, startChatTransition] = useTransition();
   const playbackTimeoutRef = useRef<number | null>(null);
+  const trackedProgressRef = useRef("");
   const playChunkSegmentRef = useRef<
     ((index: number, type: PlaybackSegmentType) => Promise<void>) | null
   >(null);
@@ -229,6 +256,32 @@ export default function Home() {
   ]);
 
   useEffect(() => {
+    if (!article || !listenerName || !processedChunks.length || completedChunks <= 0) {
+      return;
+    }
+
+    const event =
+      completedChunks >= processedChunks.length
+        ? "session_completed"
+        : "session_progress";
+    const trackingKey = `${article.url}:${completedChunks}:${insightScore}:${event}`;
+
+    if (trackedProgressRef.current === trackingKey) {
+      return;
+    }
+
+    trackedProgressRef.current = trackingKey;
+    trackListenerEvent({
+      name: listenerName,
+      articleTitle: article.title,
+      articleUrl: article.url,
+      iqScore: insightScore,
+      completedSections: completedChunks,
+      event,
+    });
+  }, [article, completedChunks, insightScore, listenerName, processedChunks.length]);
+
+  useEffect(() => {
     return () => {
       if (playbackTimeoutRef.current !== null) {
         window.clearTimeout(playbackTimeoutRef.current);
@@ -350,6 +403,7 @@ export default function Home() {
     setFinalSummary("");
     setChatMessages([]);
     setPlayerState("PREPARING");
+    trackedProgressRef.current = "";
 
     startPreparingTransition(async () => {
       try {
@@ -399,6 +453,14 @@ export default function Home() {
           },
         ]);
         setPlayerState("READY");
+        trackListenerEvent({
+          name: listenerName || nameDraft.trim(),
+          articleTitle: scraped.title,
+          articleUrl: scraped.url,
+          iqScore: 0,
+          completedSections: 0,
+          event: "article_prepared",
+        });
       } catch (requestError) {
         const message =
           requestError instanceof Error
@@ -420,6 +482,10 @@ export default function Home() {
 
     saveListenerName(trimmed);
     setListenerName(trimmed);
+    trackListenerEvent({
+      name: trimmed,
+      event: "profile_saved",
+    });
   }
 
   function handleRestoreSession(session: ListeningSession) {
@@ -443,6 +509,7 @@ export default function Home() {
     setFinalSummary(session.finalSummary);
     setError("");
     setPlayerState("READY");
+    trackedProgressRef.current = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -676,6 +743,7 @@ export default function Home() {
     setFinalSummary("");
     setError("");
     setPlayerState("IDLE");
+    trackedProgressRef.current = "";
   }
 
   return (
@@ -697,6 +765,7 @@ export default function Home() {
             </h1>
             <p className="mt-4 text-base font-semibold leading-7 text-slate-300">
               Your name appears in the player and makes the audio quest feel personal.
+              We also save basic demo activity so the creator can understand usage.
             </p>
             <input
               value={nameDraft}
