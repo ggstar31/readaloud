@@ -12,8 +12,6 @@ type PlayerBarProps = {
   onKeepListening: () => void;
   onRecapQuiz: () => void;
   onSelectQuizAnswer: (option: string) => void;
-  onFinishArticle: () => void;
-  onReplay: () => void;
   progressPercent: number;
   insightScore: number;
   completedChunks: number;
@@ -26,7 +24,6 @@ type PlayerBarProps = {
     | "feedback"
     | "complete"
     | null;
-  isFinalCheckpoint: boolean;
   articleTitle: string;
   finalSummary: string;
   displayText: string;
@@ -105,14 +102,11 @@ export function PlayerBar({
   onKeepListening,
   onRecapQuiz,
   onSelectQuizAnswer,
-  onFinishArticle,
-  onReplay,
   progressPercent,
   insightScore,
   completedChunks,
   totalChunks,
   currentStage,
-  isFinalCheckpoint,
   articleTitle,
   finalSummary,
   displayText,
@@ -198,29 +192,16 @@ export function PlayerBar({
 
       {isCheckpoint ? (
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {isFinalCheckpoint ? (
-            <button
-              type="button"
-              onClick={onFinishArticle}
-              className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
-            >
-              Finish article
-              <span className="mt-1 block text-sm font-semibold text-slate-300">
-                Wrap up and see your completion message.
-              </span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onKeepListening}
-              className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
-            >
-              Keep listening
-              <span className="mt-1 block text-sm font-semibold text-slate-300">
-                Continue to the next paragraph.
-              </span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onKeepListening}
+            className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
+          >
+            Keep listening
+            <span className="mt-1 block text-sm font-semibold text-slate-300">
+              Continue to the next paragraph.
+            </span>
+          </button>
           <button
             type="button"
             onClick={onRecapQuiz}
@@ -265,22 +246,22 @@ export function PlayerBar({
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <button
             type="button"
-            onClick={onReplay}
-            className="rounded-[1.35rem] bg-[linear-gradient(135deg,#22d3ee,#8b5cf6)] px-5 py-4 text-left text-base font-black text-white shadow-[0_18px_55px_rgba(34,211,238,0.22)] transition hover:scale-[1.01]"
+            onClick={onReset}
+            className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
           >
-            Listen again
-            <span className="mt-1 block text-sm font-semibold text-white/80">
-              Replay from the beginning.
+            End it
+            <span className="mt-1 block text-sm font-semibold text-slate-300">
+              Close out this session.
             </span>
           </button>
           <button
             type="button"
-            onClick={onReset}
-            className="rounded-[1.35rem] border border-white/10 bg-white/10 px-5 py-4 text-left text-base font-black text-white transition hover:bg-white/16"
+            onClick={onRecapQuiz}
+            className="rounded-[1.35rem] bg-[linear-gradient(135deg,#facc15,#22d3ee)] px-5 py-4 text-left text-base font-black text-slate-950 shadow-[0_18px_55px_rgba(34,211,238,0.22)] transition hover:scale-[1.01]"
           >
-            New article
-            <span className="mt-1 block text-sm font-semibold text-slate-300">
-              Drop in a new link.
+            Recap & Quiz +5IQ
+            <span className="mt-1 block text-sm font-semibold text-slate-800">
+              Lock it in one last time.
             </span>
           </button>
         </div>

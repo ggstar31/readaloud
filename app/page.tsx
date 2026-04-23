@@ -99,7 +99,7 @@ function formatError(message: string) {
   }
 
   if (/firecrawl/i.test(message)) {
-    return "The article text could not be cleaned correctly. Try another public article URL.";
+    return "That link looks like a 404 / blocked page, not a real article. Please try another public article URL.";
   }
 
   return "This article could not be turned into an audio session yet. Try another public article or retry after redeploying with updated API settings.";
@@ -168,10 +168,8 @@ export default function Home() {
     [savedSessions]
   );
 
-  const isFinalCheckpoint = Boolean(
-    pendingCheckpoint &&
-      processedChunks.length &&
-      pendingCheckpoint.endIndex >= processedChunks.length - 1
+  const isAtArticleEnd = Boolean(
+    processedChunks.length && completedChunks >= processedChunks.length
   );
 
   const currentDisplayText = useMemo(() => {
@@ -182,7 +180,7 @@ export default function Home() {
     }
 
     if (currentStage === "checkpoint") {
-      if (isFinalCheckpoint) {
+      if (isAtArticleEnd) {
         return "You're at the end of the article. Finish now, or take a quick recap and quiz to lock it in.";
       }
       return "You reached a checkpoint. Keep listening, or take a quick recap and quiz to lock in the last two paragraphs.";
@@ -210,7 +208,7 @@ export default function Home() {
     completionMessage,
     currentChunk,
     currentStage,
-    isFinalCheckpoint,
+    isAtArticleEnd,
     processedChunks,
     quizFeedback,
   ]);
@@ -371,8 +369,18 @@ export default function Home() {
           setCompletedChunks((previous) => Math.max(previous, index + 1));
           setCurrentStage(null);
 
+          const isLastChunk = index >= processedChunks.length - 1;
+          if (isLastChunk) {
+            const startIndex = Math.max(0, index - 1);
+            setPendingCheckpoint({ startIndex, endIndex: index });
+            setCompletionMessage("Woohoo! You're done with the article.");
+            setCurrentStage("complete");
+            setPlayerState("READY");
+            return;
+          }
+
           const shouldCheckpoint =
-            (index + 1) % 2 === 0 || index >= processedChunks.length - 1;
+            (index + 1) % 2 === 0;
 
           if (shouldCheckpoint) {
             setPendingCheckpoint({
@@ -449,7 +457,7 @@ export default function Home() {
 
         const processed = await mapWithConcurrency(
           chunkResponse.chunks,
-          2,
+          1,
           async (chunk) => {
             try {
               return await postJson<ProcessedChunk>("/api/process-chunk", { chunk });
@@ -554,6 +562,9 @@ export default function Home() {
 
   async function handleKeepListening() {
     if (!pendingCheckpoint) {
+      if (isAtArticleEnd) {
+        handleFinishArticle();
+      }
       return;
     }
 
@@ -562,7 +573,7 @@ export default function Home() {
     setCheckpointRecapText("");
     setQuizFeedback(null);
 
-    if (nextIndex >= processedChunks.length) {
+    if (nextIndex >= processedChunks.length || isAtArticleEnd) {
       handleFinishArticle();
       return;
     }
@@ -571,39 +582,18 @@ export default function Home() {
   }
 
   function handleFinishArticle() {
-    setPendingCheckpoint(null);
+    const endIndex = Math.max(0, processedChunks.length - 1);
+    const startIndex = Math.max(0, endIndex - 1);
+    if (processedChunks.length) {
+      setPendingCheckpoint({ startIndex, endIndex });
+    }
     setCheckpointRecapText("");
     setQuizFeedback(null);
     setCompletionMessage(
-      "Woohoo, you've finished the article. Want to listen one more time?"
+      "Woohoo! You're done with the article."
     );
     setCurrentStage("complete");
     setPlayerState("READY");
-  }
-
-  async function handleReplayArticle() {
-    if (!processedChunks.length) {
-      return;
-    }
-
-    stop();
-    if (playbackTimeoutRef.current !== null) {
-      window.clearTimeout(playbackTimeoutRef.current);
-    }
-
-    setError("");
-    setPendingCheckpoint(null);
-    setCheckpointRecapText("");
-    setQuizFeedback(null);
-    setCompletionMessage("");
-    setAnsweredQuizIds([]);
-    setCorrectQuizCount(0);
-    setCompletedChunks(0);
-    setCurrentChunk(0);
-    setCurrentStage(null);
-    setPlayerState("READY");
-
-    await playChunkSegment(0, "narration");
   }
 
   async function handleRecapAndQuiz() {
@@ -688,7 +678,7 @@ export default function Home() {
       console.error(playbackError);
     }
 
-    if (isFinalCheckpoint) {
+    if (isAtArticleEnd) {
       handleFinishArticle();
     }
   }
@@ -945,14 +935,11 @@ export default function Home() {
               onKeepListening={handleKeepListening}
               onRecapQuiz={handleRecapAndQuiz}
               onSelectQuizAnswer={handleQuizAnswer}
-              onFinishArticle={handleFinishArticle}
-              onReplay={handleReplayArticle}
               progressPercent={progressPercent}
               insightScore={insightScore}
               completedChunks={completedChunks}
               totalChunks={processedChunks.length}
               currentStage={currentStage}
-              isFinalCheckpoint={isFinalCheckpoint}
               articleTitle={article?.title ?? ""}
               finalSummary={finalSummary}
               displayText={currentDisplayText}

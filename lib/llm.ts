@@ -30,22 +30,38 @@ function getProviderCandidates(preferred?: LLMProvider) {
   });
 }
 
-function getActiveProvider(provider?: LLMProvider): LLMProvider {
-  const candidates = getProviderCandidates(provider);
+type ProviderError = {
+  provider: LLMProvider;
+  status?: number;
+  message: string;
+};
 
-  if (!candidates.length) {
-    throw new Error(
-      "No LLM provider key is configured. Add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY."
-    );
+function shouldTryNextProvider(error: ProviderError) {
+  const status = error.status ?? 0;
+
+  if (status === 429) {
+    return true;
   }
 
-  return candidates[0];
+  if (status >= 500 && status <= 599) {
+    return true;
+  }
+
+  return /rate|quota|timeout|timed out|overloaded/i.test(error.message);
 }
 
-async function readError(response: Response) {
+async function readError(provider: LLMProvider, response: Response): Promise<ProviderError> {
   const text = await response.text();
+  return {
+    provider,
+    status: response.status,
+    message: `LLM request failed (${response.status} ${response.statusText}): ${text}`,
+  };
+}
+
+function noProviderConfigured() {
   throw new Error(
-    `LLM request failed (${response.status} ${response.statusText}): ${text}`
+    "No LLM provider key is configured. Add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY."
   );
 }
 
@@ -58,12 +74,20 @@ export async function callLLM({
   jsonMode = false,
   timeoutMs = 9000,
 }: LLMRequest): Promise<string> {
-  const activeProvider = getActiveProvider(provider);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const candidates = getProviderCandidates(provider);
 
-  try {
-    if (activeProvider === "claude") {
+  if (!candidates.length) {
+    noProviderConfigured();
+  }
+
+  let lastError: ProviderError | null = null;
+
+  for (const activeProvider of candidates) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      if (activeProvider === "claude") {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error("ANTHROPIC_API_KEY is missing.");
     }
@@ -86,7 +110,7 @@ export async function callLLM({
     });
 
     if (!response.ok) {
-      await readError(response);
+      throw await readError(activeProvider, response);
     }
 
     const data = (await response.json()) as {
@@ -127,7 +151,7 @@ export async function callLLM({
     });
 
     if (!response.ok) {
-      await readError(response);
+      throw await readError(activeProvider, response);
     }
 
     const data = (await response.json()) as {
@@ -181,7 +205,7 @@ export async function callLLM({
   );
 
   if (!response.ok) {
-    await readError(response);
+    throw await readError(activeProvider, response);
   }
 
   const data = (await response.json()) as {
@@ -201,7 +225,29 @@ export async function callLLM({
   }
 
   return text;
-  } finally {
-    clearTimeout(timeout);
+      } catch (error) {
+        const providerError: ProviderError =
+          typeof error === "object" &&
+          error !== null &&
+          "provider" in error &&
+          "message" in error
+            ? (error as ProviderError)
+            : {
+                provider: activeProvider,
+                message: error instanceof Error ? error.message : "LLM request failed.",
+              };
+
+        lastError = providerError;
+
+        if (!shouldTryNextProvider(providerError)) {
+          throw new Error(providerError.message);
+        }
+
+        continue;
+      } finally {
+        clearTimeout(timeout);
+      }
   }
+
+  throw new Error(lastError?.message ?? "LLM request failed.");
 }
