@@ -20,7 +20,6 @@
 html {
   max-width: 100%;
   overflow-x: hidden;
-  scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -95,34 +94,37 @@ textarea {
     radial-gradient(circle at 18% 18%, rgba(34, 211, 238, 0.28), transparent 24%),
     radial-gradient(circle at 78% 16%, rgba(168, 85, 247, 0.34), transparent 25%),
     radial-gradient(circle at 50% 92%, rgba(59, 130, 246, 0.22), transparent 26%);
-  filter: blur(38px);
-  opacity: 0.9;
+  filter: blur(28px);
+  opacity: 0.68;
   pointer-events: none;
-  animation: aurora-shift 18s ease-in-out infinite;
 }
 
 .app-glass {
   min-width: 0;
   max-width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.045));
-  box-shadow: 0 28px 120px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(22px);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.06));
+  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(14px);
 }
 
 .orb-core {
-  animation: orb-float 5.5s ease-in-out infinite;
+  animation: orb-float 8s ease-in-out infinite;
 }
 
 .orb-ring {
-  animation: ring-pulse 2.8s ease-out infinite;
+  animation: ring-pulse 4.2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-bg::before,
+  .orb-core,
+  .orb-ring {
+    animation: none;
+  }
 }
 
 @media (max-width: 768px) {
-  html {
-    scroll-behavior: auto;
-  }
-
   .aurora-bg::before {
     inset: -10%;
     filter: blur(24px);
