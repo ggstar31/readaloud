@@ -87,59 +87,25 @@ textarea {
 }
 
 .aurora-bg::before {
-  content: "";
-  position: absolute;
-  inset: -18%;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(34, 211, 238, 0.28), transparent 24%),
-    radial-gradient(circle at 78% 16%, rgba(168, 85, 247, 0.34), transparent 25%),
-    radial-gradient(circle at 50% 92%, rgba(59, 130, 246, 0.22), transparent 26%);
-  filter: blur(28px);
-  opacity: 0.68;
-  pointer-events: none;
+  content: none;
 }
 
 .app-glass {
   min-width: 0;
   max-width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.06));
-  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(14px);
+  background: linear-gradient(145deg, rgba(24, 29, 51, 0.96), rgba(15, 19, 35, 0.98));
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.26);
+  backdrop-filter: none;
 }
 
-.orb-core {
-  animation: orb-float 8s ease-in-out infinite;
-}
-
+.orb-core,
 .orb-ring {
-  animation: ring-pulse 4.2s ease-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .aurora-bg::before,
-  .orb-core,
-  .orb-ring {
-    animation: none;
-  }
+  animation: none;
 }
 
 @media (max-width: 768px) {
-  .aurora-bg::before {
-    inset: -10%;
-    filter: blur(24px);
-    opacity: 0.62;
-    animation: none;
-  }
-
   .app-glass {
-    backdrop-filter: blur(12px);
-    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
-  }
-
-  .orb-core,
-  .orb-ring {
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
+    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.24);
   }
 }

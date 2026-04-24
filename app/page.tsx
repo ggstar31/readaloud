@@ -927,7 +927,7 @@ export default function Home() {
   return (
     <main className="aurora-bg min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,#140c2d_0%,#0d1328_46%,#070817_100%)] text-slate-100">
       {hasLoadedProfile && !listenerName ? (
-        <section className="fixed inset-0 z-50 grid place-items-center bg-[#070817]/90 px-5 backdrop-blur-2xl">
+        <section className="fixed inset-0 z-50 grid place-items-center bg-[#070817]/96 px-5">
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -964,7 +964,7 @@ export default function Home() {
       ) : null}
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-3 py-4 sm:gap-7 sm:px-6 sm:py-5 lg:px-8">
-        <header className="flex min-w-0 items-center justify-between gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-3 backdrop-blur-2xl sm:px-4">
+        <header className="flex min-w-0 items-center justify-between gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-400 to-cyan-300 text-base font-black text-slate-950 sm:h-10 sm:w-10 sm:text-lg">
               {(listenerName || "R").slice(0, 1).toUpperCase()}
@@ -990,7 +990,7 @@ export default function Home() {
         </header>
 
         <section className="grid min-w-0 items-start gap-5 lg:gap-7 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="min-w-0 space-y-4 sm:space-y-5 xl:sticky xl:top-5">
+          <div className="min-w-0 space-y-4 sm:space-y-5">
             <div className="pt-1 sm:pt-8">
               <p className="text-[10px] font-black uppercase tracking-[0.34em] text-violet-300 sm:text-[11px] sm:tracking-[0.4em]">
                 Now an experience
