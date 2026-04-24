@@ -262,6 +262,7 @@ export default function Home() {
     playerState === "QUIZZING" ||
     playerState === "FEEDBACK" ||
     playerState === "CHATTING";
+  const hasPreparedSession = processedChunks.length > 0;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -582,6 +583,24 @@ export default function Home() {
         setPlayerState("ERROR");
       }
     });
+  }
+
+  async function handlePrimaryAction() {
+    if (isPreparing) {
+      return;
+    }
+
+    if (canPause) {
+      handlePause();
+      return;
+    }
+
+    if (hasPreparedSession && canStart) {
+      await handleStartPlayback();
+      return;
+    }
+
+    await handlePrepareArticle();
   }
 
   function handleSaveProfile() {
@@ -988,8 +1007,12 @@ export default function Home() {
             <ArticleInput
               url={url}
               onUrlChange={setUrl}
-              onSubmit={handlePrepareArticle}
+              onSubmit={handlePrimaryAction}
+              onPause={handlePause}
               isLoading={isPreparing}
+              isPlaying={canPause}
+              canResume={canStart}
+              hasPreparedSession={hasPreparedSession}
             />
 
             {error ? (

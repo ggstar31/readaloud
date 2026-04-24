@@ -2,15 +2,33 @@ type ArticleInputProps = {
   url: string;
   onUrlChange: (value: string) => void;
   onSubmit: () => void;
+  onPause: () => void;
   isLoading: boolean;
+  isPlaying: boolean;
+  canResume: boolean;
+  hasPreparedSession: boolean;
 };
 
 export function ArticleInput({
   url,
   onUrlChange,
   onSubmit,
+  onPause,
   isLoading,
+  isPlaying,
+  canResume,
+  hasPreparedSession,
 }: ArticleInputProps) {
+  const ctaLabel = isLoading
+    ? "Preparing experience"
+    : isPlaying
+      ? "Pause listening"
+      : hasPreparedSession && canResume
+        ? "Resume listening"
+        : "Start listening";
+  const ctaIcon = isLoading ? "◇" : isPlaying ? "Ⅱ" : "▶";
+  const handlePrimaryAction = isPlaying ? onPause : onSubmit;
+
   return (
     <div className="app-glass overflow-hidden rounded-[1.6rem] p-4 sm:rounded-[2rem] sm:p-5">
       <label
@@ -43,12 +61,12 @@ export function ArticleInput({
         </div>
         <button
           type="button"
-          onClick={onSubmit}
+          onClick={handlePrimaryAction}
           disabled={isLoading}
           className="min-h-14 w-full rounded-[1.2rem] bg-[linear-gradient(135deg,#a855f7_0%,#6d5dfc_45%,#22d3ee_100%)] px-4 text-base font-black text-white shadow-[0_22px_60px_rgba(124,58,237,0.42)] transition hover:scale-[1.01] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70 sm:min-h-16 sm:rounded-[1.45rem] sm:px-6 sm:text-lg"
         >
-          <span className="mr-3 inline-block">{isLoading ? "◇" : "▶"}</span>
-          {isLoading ? "Preparing experience" : "Start listening"}
+          <span className="mr-3 inline-block">{ctaIcon}</span>
+          {ctaLabel}
         </button>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-black text-white sm:mt-5 sm:gap-3 sm:text-sm">
