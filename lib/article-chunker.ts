@@ -7,12 +7,12 @@ function normalizeParagraph(paragraph: string) {
     .trim();
 }
 
-function splitLongParagraph(paragraph: string) {
-  if (paragraph.length <= 1400) {
-    return [paragraph];
-  }
+function splitIntoSentences(paragraph: string) {
+  return paragraph.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [paragraph];
+}
 
-  const sentences = paragraph.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [paragraph];
+function splitLongParagraph(paragraph: string) {
+  const sentences = splitIntoSentences(paragraph);
   const chunks: string[] = [];
   let current = "";
 
@@ -20,7 +20,7 @@ function splitLongParagraph(paragraph: string) {
     const trimmed = sentence.trim();
     const candidate = current ? `${current} ${trimmed}` : trimmed;
 
-    if (candidate.length > 1200 && current) {
+    if (candidate.length > 520 && current) {
       chunks.push(current);
       current = trimmed;
       continue;
@@ -36,6 +36,50 @@ function splitLongParagraph(paragraph: string) {
   return chunks;
 }
 
+function groupShortSections(paragraphs: string[]) {
+  const chunks: string[] = [];
+  let currentSentences: string[] = [];
+  let currentLength = 0;
+
+  const flush = () => {
+    if (!currentSentences.length) {
+      return;
+    }
+
+    chunks.push(currentSentences.join(" ").trim());
+    currentSentences = [];
+    currentLength = 0;
+  };
+
+  for (const paragraph of paragraphs) {
+    const sentences = splitIntoSentences(paragraph)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+
+    for (const sentence of sentences) {
+      const nextLength = currentLength + sentence.length + (currentSentences.length ? 1 : 0);
+      const shouldFlush =
+        currentSentences.length >= 4 ||
+        (currentSentences.length >= 3 && nextLength > 360) ||
+        nextLength > 460;
+
+      if (shouldFlush) {
+        flush();
+      }
+
+      currentSentences.push(sentence);
+      currentLength += sentence.length + (currentSentences.length > 1 ? 1 : 0);
+    }
+
+    if (currentSentences.length >= 3) {
+      flush();
+    }
+  }
+
+  flush();
+  return chunks;
+}
+
 export function chunkArticle(markdown: string) {
   const paragraphs = markdown
     .replace(/\r/g, "")
@@ -45,31 +89,8 @@ export function chunkArticle(markdown: string) {
     .flatMap(splitLongParagraph);
 
   if (!paragraphs.length) {
-    return [markdown.slice(0, 1800).trim()].filter(Boolean);
+    return [markdown.slice(0, 700).trim()].filter(Boolean);
   }
 
-  const chunks: string[] = [];
-  let current: string[] = [];
-  let currentLength = 0;
-
-  for (const paragraph of paragraphs) {
-    const nextLength = currentLength + paragraph.length;
-    const shouldFlush =
-      current.length >= 3 || (current.length >= 2 && nextLength > 1700);
-
-    if (shouldFlush) {
-      chunks.push(current.join("\n\n"));
-      current = [];
-      currentLength = 0;
-    }
-
-    current.push(paragraph);
-    currentLength += paragraph.length;
-  }
-
-  if (current.length) {
-    chunks.push(current.join("\n\n"));
-  }
-
-  return chunks.slice(0, 10);
+  return groupShortSections(paragraphs).slice(0, 18);
 }

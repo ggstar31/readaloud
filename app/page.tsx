@@ -212,7 +212,7 @@ export default function Home() {
       if (isAtArticleEnd) {
         return "You're at the end of the article. Finish now, or take a quick recap and quiz to lock it in.";
       }
-      return "You reached a checkpoint. Keep listening, or take a quick recap and quiz to lock in the last two paragraphs.";
+      return "You reached a checkpoint. Keep listening, or take a quick recap and quiz to lock in the last two sections.";
     }
 
     if (currentStage === "feedback" && quizFeedback) {
@@ -675,6 +675,22 @@ export default function Home() {
     await playChunkSegment(nextIndex, "narration");
   }
 
+  function checkpointDueFor(index: number) {
+    return index > 0 && (index + 1) % 2 === 0;
+  }
+
+  function openCheckpointFor(index: number) {
+    setPendingCheckpoint({
+      startIndex: Math.max(0, index - 1),
+      endIndex: index,
+    });
+    setCheckpointRecapText("");
+    setQuizFeedback(null);
+    setCurrentChunk(index);
+    setCurrentStage("checkpoint");
+    setPlayerState("CHECKPOINT");
+  }
+
   function handleFinishArticle() {
     const endIndex = Math.max(0, processedChunks.length - 1);
     const startIndex = Math.max(0, endIndex - 1);
@@ -749,7 +765,7 @@ export default function Home() {
     const answer = activeQuizChunk.answer ?? "A";
     const explanation =
       activeQuizChunk.explanation ??
-      "This answer best captures the main point from the paragraph.";
+      "This answer best captures the main point from the section.";
     const correct = option === answer;
     const quizId = `${pendingCheckpoint.endIndex}_${answer}`;
     const feedbackText = limitForSpeech(
@@ -814,6 +830,11 @@ export default function Home() {
     stop();
     if (playbackTimeoutRef.current !== null) {
       window.clearTimeout(playbackTimeoutRef.current);
+    }
+
+    if (checkpointDueFor(currentChunk) && currentChunk < processedChunks.length - 1) {
+      openCheckpointFor(currentChunk);
+      return;
     }
 
     const nextIndex = Math.min(processedChunks.length - 1, currentChunk + 1);
@@ -1084,7 +1105,7 @@ export default function Home() {
                           {session.article.title}
                         </p>
                         <p className="mt-2 text-sm font-semibold text-slate-400">
-                          Paragraph {Math.min(session.currentChunk + 1, session.processedChunks.length)} of{" "}
+                          Section {Math.min(session.currentChunk + 1, session.processedChunks.length)} of{" "}
                           {session.processedChunks.length}
                         </p>
                       </div>

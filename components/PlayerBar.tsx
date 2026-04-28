@@ -162,7 +162,7 @@ export function PlayerBar({
         />
       </div>
       <div className="mt-2 flex justify-end text-xs font-bold tracking-[0.13em] text-white/55 sm:text-sm sm:tracking-[0.16em]">
-        Paragraph {Math.min(completedChunks + 1, totalChunks || 1)} / {totalChunks || 1}
+        Section {Math.min(completedChunks + 1, totalChunks || 1)} / {totalChunks || 1}
       </div>
 
       <div className="relative mx-auto mt-5 grid h-48 w-full max-w-xs place-items-center sm:mt-9 sm:h-80 sm:max-w-sm">
@@ -199,7 +199,7 @@ export function PlayerBar({
           >
             Keep listening
             <span className="mt-1 block text-sm font-semibold text-slate-300">
-              Continue to the next paragraph.
+              Continue to the next section.
             </span>
           </button>
           <button
@@ -209,7 +209,7 @@ export function PlayerBar({
           >
             Recap & Quiz +5IQ
             <span className="mt-1 block text-sm font-semibold text-slate-800">
-              Recap the last two paragraphs and earn quiz points.
+              Recap the last two sections and earn quiz points.
             </span>
           </button>
         </div>
@@ -277,7 +277,7 @@ export function PlayerBar({
           onClick={onPrevious}
           disabled={!totalChunks}
           className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/10 text-lg text-white shadow-lg transition hover:bg-white/16 disabled:cursor-not-allowed disabled:opacity-45 sm:h-16 sm:w-16 sm:text-2xl"
-          aria-label="Previous paragraph"
+          aria-label="Previous section"
         >
           ◀
         </button>
@@ -295,7 +295,7 @@ export function PlayerBar({
           onClick={onNext}
           disabled={!totalChunks}
           className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/10 text-lg text-white shadow-lg transition hover:bg-white/16 disabled:cursor-not-allowed disabled:opacity-50 sm:h-16 sm:w-16 sm:text-2xl"
-          aria-label="Next paragraph"
+          aria-label="Next section"
         >
           ▶
         </button>
