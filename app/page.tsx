@@ -757,6 +757,40 @@ export default function Home() {
     }
   }
 
+  async function handleOpenQuizDirectly() {
+    if (!pendingCheckpoint) {
+      return;
+    }
+
+    const quizChunk = processedChunks[pendingCheckpoint.endIndex];
+
+    if (!quizChunk) {
+      return;
+    }
+
+    const quizText = sanitizeForSpeech(
+      `${quizChunk.question} ${(quizChunk.options ?? []).join(" ")}`
+    );
+
+    try {
+      setCurrentChunk(pendingCheckpoint.endIndex);
+      setCurrentStage("quiz");
+      setPlayerState("QUIZZING");
+      await speak(quizText);
+    } catch (playbackError) {
+      const message =
+        playbackError instanceof Error
+          ? playbackError.message
+          : "Audio playback failed.";
+      console.error(playbackError);
+      setError(
+        `Free browser quiz could not play. Detail: ${message.slice(0, 180)}`
+      );
+      setPlayerState("ERROR");
+      setCurrentStage(null);
+    }
+  }
+
   async function handleQuizAnswer(option: string) {
     if (!pendingCheckpoint || !activeQuizChunk) {
       return;
@@ -830,6 +864,11 @@ export default function Home() {
     stop();
     if (playbackTimeoutRef.current !== null) {
       window.clearTimeout(playbackTimeoutRef.current);
+    }
+
+    if (currentStage === "summary" && pendingCheckpoint) {
+      await handleOpenQuizDirectly();
+      return;
     }
 
     if (checkpointDueFor(currentChunk) && currentChunk < processedChunks.length - 1) {
@@ -918,6 +957,14 @@ export default function Home() {
         setPlayerState("READY");
       }
     });
+  }
+
+  function handlePauseChatSpeech() {
+    stop();
+    if (playbackTimeoutRef.current !== null) {
+      window.clearTimeout(playbackTimeoutRef.current);
+    }
+    setPlayerState(processedChunks.length ? "READY" : "IDLE");
   }
 
   function handleReset() {
@@ -1155,6 +1202,8 @@ export default function Home() {
           isEnabled={Boolean(article)}
           isSending={isChatting}
           onSend={handleSendChat}
+          canPauseSpeech={playerState === "CHATTING"}
+          onPauseSpeech={handlePauseChatSpeech}
           articleTitle={article?.title ?? ""}
         />
       </div>

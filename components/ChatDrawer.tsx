@@ -8,6 +8,8 @@ type ChatDrawerProps = {
   isEnabled: boolean;
   isSending: boolean;
   onSend: (message: string) => void;
+  canPauseSpeech: boolean;
+  onPauseSpeech: () => void;
   articleTitle: string;
 };
 
@@ -44,6 +46,8 @@ export function ChatDrawer({
   isEnabled,
   isSending,
   onSend,
+  canPauseSpeech,
+  onPauseSpeech,
   articleTitle,
 }: ChatDrawerProps) {
   const [draft, setDraft] = useState("");
@@ -170,14 +174,25 @@ export function ChatDrawer({
               Ask about this article
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsOpen(false)}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/12 text-xl text-white/80 transition hover:bg-white/18 sm:h-12 sm:w-12 sm:text-2xl"
-            aria-label="Close conversation"
-          >
-            ×
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {canPauseSpeech ? (
+              <button
+                type="button"
+                onClick={onPauseSpeech}
+                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-black text-white transition hover:bg-white/16"
+              >
+                Pause
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/12 text-xl text-white/80 transition hover:bg-white/18 sm:h-12 sm:w-12 sm:text-2xl"
+              aria-label="Close conversation"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 max-h-72 space-y-3 overflow-y-auto pr-1 sm:mt-6">
